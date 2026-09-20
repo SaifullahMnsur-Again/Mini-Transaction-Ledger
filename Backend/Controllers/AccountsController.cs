@@ -1,0 +1,44 @@
+using Backend.DTOs;
+using Backend.Services;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Backend.Controllers;
+
+[ApiController]
+[Route("api/v1/[controller]")] 
+public class AccountsController(IAccountService accountService) : ControllerBase
+{
+    [HttpPost]
+    [ProducesResponseType(typeof(AccountDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> CreateAccount([FromBody] CreateAccountRequest request,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var result = await accountService.CreateAccountAsync(request, ct);
+            return CreatedAtAction(nameof(GetAccountById), new { id = result.Id }, result);
+        }
+        catch (InvalidOperationException e)
+        {
+            return BadRequest(new {error = e.Message});
+        }
+    }
+    
+    [HttpGet]
+    [ProducesResponseType(typeof(IEnumerable<AccountDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAllAccounts(CancellationToken ct)
+    {
+        var accounts = await accountService.GetAllAccountsAsync(ct);
+        return Ok(accounts);
+    }
+
+    [HttpGet("{id:guid}")]
+    [ProducesResponseType(typeof(AccountDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAccountById(Guid id, CancellationToken ct = default)
+    {
+        var account = await accountService.GetAccountByIdAsync(id, ct);
+        return account is not null ? Ok(account) : NotFound();
+    }
+}

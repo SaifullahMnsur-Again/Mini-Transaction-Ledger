@@ -49,8 +49,8 @@ namespace Backend.Migrations
                     JournalEntryId = table.Column<Guid>(type: "uuid", nullable: false),
                     AccountId = table.Column<Guid>(type: "uuid", nullable: false),
                     Type = table.Column<int>(type: "integer", nullable: false),
-                    Amount = table.Column<decimal>(type: "decimal(18,4", nullable: false),
-                    RunningBalanceAfter = table.Column<decimal>(type: "decimal(18,4", nullable: false)
+                    Amount = table.Column<decimal>(type: "decimal(18,4)", nullable: false),
+                    RunningBalanceAfter = table.Column<decimal>(type: "decimal(18,4)", nullable: false)
                 },
                 constraints: table =>
                 {

@@ -1,0 +1,37 @@
+*.md
+*.png
+*.svg
+
+## --- Environment & Secrets ---
+.env
+*.env.local
+*.env.*.local
+
+## --- Database Storage ---
+pgdata/
+postgres-data/
+
+## --- .NET Build Outputs & Artifacts ---
+**/[Bb]in/
+**/[Oo]bj/
+**/[Aa]pp_Data/
+**/[Ll]ogs/
+
+## --- Rider, Visual Studio & VS Code ---
+.idea/
+.vs/
+.vscode/
+*.DotSettings.user
+*.suo
+*.user
+*.userprefs
+
+## --- OS & Runtime Artifacts ---
+.DS_Store
+Thumbs.db
+crash.dmp
+
+## --- Frontend (reserved for upcoming phase) ---
+**/node_modules/
+**/dist/
+**/build/

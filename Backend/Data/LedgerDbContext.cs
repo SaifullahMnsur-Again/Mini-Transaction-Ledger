@@ -22,8 +22,8 @@ public class LedgerDbContext(DbContextOptions<LedgerDbContext> options) : DbCont
         });
         modelBuilder.Entity<LedgerSplit>(entity =>
         {
-            entity.Property(s => s.Amount).HasColumnType("decimal(18,4");
-            entity.Property(s => s.RunningBalanceAfter).HasColumnType("decimal(18,4");
+            entity.Property(s => s.Amount).HasColumnType("decimal(18,4)");
+            entity.Property(s => s.RunningBalanceAfter).HasColumnType("decimal(18,4)");
         });
     }
 }
