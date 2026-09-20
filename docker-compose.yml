@@ -1,0 +1,52 @@
+services:
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: ledger-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ledger_db}
+    ports:
+      - "5432:5432" # Maps host 5433 to container 5432 if your host port 5432 was already occupied
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ledger_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ledger-net
+
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+      network: host 
+    container_name: ledger-backend
+    restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    env_file:
+      - .env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Docker
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      # Connect via service name 'postgres-db' on container port 5432
+      - ConnectionStrings__DefaultConnection=Host=postgres-db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+    ports:
+      - "8000:8080"
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    networks:
+      - ledger-net
+
+volumes:
+  pgdata:
+
+networks:
+  ledger-net:
+    driver: bridge
