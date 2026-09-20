@@ -1,0 +1,25 @@
+# === .NET Build Outputs ===
+bin/
+obj/
+
+# === JetBrains Rider Settings ===
+.idea/
+*.sln.iml
+
+# === Visual Studio & Other IDEs ===
+.vs/
+.vscode/
+*.user
+*.suo
+
+# === Secrets and Local Configurations ===
+appsettings.Development.json
+*.secrets.json
+
+# === OS Files ===
+Thumbs.db
+.DS_Store
+
+# HTTP client files containing local variables/tokens
+Backend.http
+
