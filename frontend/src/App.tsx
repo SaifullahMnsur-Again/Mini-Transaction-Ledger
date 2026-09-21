@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
+import type { TabType } from './components/Header';
 import { AccountsView } from './components/AccountsView';
+import { TransactionView } from './components/TransactionView';
+import { TransactionsLogView } from './components/TransactionsLogView';
 import { fetchAccounts, createAccount } from './services/api';
 import type { Account, CreateAccountRequest } from './types/ledger';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'accounts' | 'transaction' | 'statement'>('accounts');
+  const [activeTab, setActiveTab] = useState<TabType>('accounts');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -45,16 +48,20 @@ export default function App() {
         )}
 
         {activeTab === 'transaction' && (
-          <div className="bg-white p-12 rounded-xl border border-slate-200 text-center text-slate-500 shadow-xs">
-            <h3 className="text-base font-bold text-slate-800 mb-1">Post Transaction</h3>
-            <p className="text-xs text-slate-500">Coming up in Phase 2</p>
-          </div>
+          <TransactionView
+            accounts={accounts}
+            onTransactionPosted={loadAccounts}
+          />
+        )}
+
+        {activeTab === 'journal' && (
+          <TransactionsLogView />
         )}
 
         {activeTab === 'statement' && (
           <div className="bg-white p-12 rounded-xl border border-slate-200 text-center text-slate-500 shadow-xs">
             <h3 className="text-base font-bold text-slate-800 mb-1">Account Statement</h3>
-            <p className="text-xs text-slate-500">Coming up in Phase 3</p>
+            <p className="text-xs text-slate-500">Up next after testing the journal log book</p>
           </div>
         )}
       </main>

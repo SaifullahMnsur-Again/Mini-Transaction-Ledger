@@ -1,8 +1,10 @@
 import React from 'react';
 
+export type TabType = 'accounts' | 'transaction' | 'journal' | 'statement';
+
 interface HeaderProps {
-  activeTab: 'accounts' | 'transaction' | 'statement';
-  setActiveTab: (tab: 'accounts' | 'transaction' | 'statement') => void;
+  activeTab: TabType;
+  setActiveTab: (tab: TabType) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
@@ -23,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
           <nav className="flex space-x-1.5 bg-slate-100 p-1 rounded-lg">
             <button
               onClick={() => setActiveTab('accounts')}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 activeTab === 'accounts'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -33,7 +35,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
             </button>
             <button
               onClick={() => setActiveTab('transaction')}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 activeTab === 'transaction'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -42,8 +44,18 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
               Post Transaction
             </button>
             <button
+              onClick={() => setActiveTab('journal')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                activeTab === 'journal'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Journal Log Book
+            </button>
+            <button
               onClick={() => setActiveTab('statement')}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 activeTab === 'statement'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
