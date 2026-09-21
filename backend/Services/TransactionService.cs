@@ -149,7 +149,7 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
         }
     }
 
-    public async Task<TransactionResponseDto?> GetTransactionByIdAsync(string transactionId, CancellationToken ct = default)
+    public async Task<TransactionResponseDto?> GetTransactionByTxIdAsync(string transactionId, CancellationToken ct = default)
     {
         var normalized = transactionId.Trim();
         JournalEntry? entry = null;

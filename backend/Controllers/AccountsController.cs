@@ -5,60 +5,60 @@ using Microsoft.AspNetCore.Mvc;
 namespace Backend.Controllers;
 
 [ApiController]
-[Route("api/v1/[controller]")] 
+[Route("api/v1/[controller]")]
 public class AccountsController(IAccountService accountService) : ControllerBase
 {
     [HttpPost]
     [ProducesResponseType(typeof(AccountDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> CreateAccount([FromBody] CreateAccountRequest request,
-        CancellationToken ct = default)
+    public async Task<IActionResult> Create([FromBody] CreateAccountRequest request, CancellationToken ct)
     {
         try
         {
             var result = await accountService.CreateAccountAsync(request, ct);
-            return CreatedAtAction(nameof(GetAccountById), new { id = result.Id }, result);
+            return CreatedAtAction(nameof(GetByNumber), new { accountNumber = result.AccountNumber }, result);
         }
-        catch (InvalidOperationException e)
+        catch (InvalidOperationException ex)
         {
-            return BadRequest(new {error = e.Message});
+            return BadRequest(new { error = ex.Message });
         }
-    }
-    
-    [HttpGet]
-    [ProducesResponseType(typeof(IEnumerable<AccountDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAllAccounts(CancellationToken ct)
-    {
-        var accounts = await accountService.GetAllAccountsAsync(ct);
-        return Ok(accounts);
     }
 
-    [HttpGet("{id:guid}")]
+    [HttpGet]
+    [ProducesResponseType(typeof(IEnumerable<AccountDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAll(CancellationToken ct)
+    {
+        var results = await accountService.GetAllAccountsAsync(ct);
+        return Ok(results);
+    }
+
+    [HttpGet("{accountNumber}")]
     [ProducesResponseType(typeof(AccountDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetAccountById([FromRoute] Guid id, CancellationToken ct = default)
+    public async Task<IActionResult> GetByNumber(string accountNumber, CancellationToken ct)
     {
-        var account = await accountService.GetAccountByIdAsync(id, ct);
-        if (account is null)
+        var result = await accountService.GetAccountByNumberAsync(accountNumber, ct);
+        if (result == null)
         {
-            return NotFound(new { error = $"Account with ID '{id}' was not found." });
+            return NotFound(new { error = $"Account '{accountNumber}' not found." });
         }
-        return Ok(account);
+
+        return Ok(result);
     }
-    
-    [HttpGet("{id:guid}/statement")]
+
+    [HttpGet("{accountNumber}/statement")]
     [ProducesResponseType(typeof(AccountStatementDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetAccountStatement(
-        [FromRoute] Guid id,
+    public async Task<IActionResult> GetStatement(
+        string accountNumber,
         [FromQuery] DateTime? fromUtc,
         [FromQuery] DateTime? toUtc,
-        CancellationToken ct = default)
+        CancellationToken ct)
     {
-        var statement = await accountService.GetAccountStatementAsync(id, fromUtc, toUtc, ct);
-        if (statement is null)
+        var statement = await accountService.GetAccountStatementByNumberAsync(accountNumber, fromUtc, toUtc, ct);
+        if (statement == null)
         {
-            return NotFound(new { error = $"Account with ID '{id}' was not found." });
+            return NotFound(new { error = $"Account '{accountNumber}' not found." });
         }
 
         return Ok(statement);

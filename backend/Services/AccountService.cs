@@ -1,7 +1,7 @@
 using Backend.Data;
-using Backend.Models;
 using Backend.DTOs;
 using Backend.Enums;
+using Backend.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Services;
@@ -15,7 +15,7 @@ public class AccountService(LedgerDbContext db) : IAccountService
 
         if (exists)
         {
-            throw new InvalidOperationException($"Account '{request.AccountNumber} already exists.");
+            throw new InvalidOperationException($"Account '{request.AccountNumber}' already exists.");
         }
 
         var account = new Account
@@ -51,64 +51,52 @@ public class AccountService(LedgerDbContext db) : IAccountService
         return accounts.Select(MapToDto);
     }
 
-    
-    public async Task<AccountDto?> GetAccountByIdAsync(Guid id, CancellationToken ct = default)
+    public async Task<AccountDto?> GetAccountByNumberAsync(string accountNumber, CancellationToken ct = default)
     {
+        var normalized = accountNumber.Trim().ToUpperInvariant();
+
         var account = await db.Accounts
             .AsNoTracking()
             .Include(a => a.Splits)
-            .FirstOrDefaultAsync(a => a.Id == id, ct);
-        
-        return account is not null ?  MapToDto(account) : null;
-    }
-    
-    private static  AccountDto MapToDto(Account a)
-    {
-        var latestBalance = a.Splits?
-            .OrderByDescending(s => s.Id)
-            .Select(s => s.RunningBalanceAfter)
-            .FirstOrDefault() ?? 0.00m;
+            .FirstOrDefaultAsync(a => a.AccountNumber == normalized, ct);
 
-        return new AccountDto(
-            a.Id,
-            a.AccountNumber,
-            a.Name,
-            a.Type,
-            a.Currency,
-            latestBalance,
-            a.CreatedAtUtc
-            );
+        return account is not null ? MapToDto(account) : null;
     }
-    
-    public async Task<AccountStatementDto?> GetAccountStatementAsync(
-    Guid accountId,
-    DateTime? fromUtc,
-    DateTime? toUtc,
-    CancellationToken ct = default)
+
+    public async Task<AccountStatementDto?> GetAccountStatementByNumberAsync(
+        string accountNumber,
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        CancellationToken ct = default)
     {
+        var normalized = accountNumber.Trim().ToUpperInvariant();
+
         var account = await db.Accounts
             .AsNoTracking()
-            .FirstOrDefaultAsync(a => a.Id == accountId, ct);
+            .FirstOrDefaultAsync(a => a.AccountNumber == normalized, ct);
 
-        if (account == null) return null;
+        if (account == null)
+        {
+            return null;
+        }
 
         var start = fromUtc ?? DateTime.MinValue.ToUniversalTime();
         var end = toUtc ?? DateTime.UtcNow;
 
-        // 1. Calculate Opening Balance: the balance after the latest split prior to start
+        // 1. Calculate Opening Balance: latest split prior to start window
         var openingBalance = await db.LedgerSplits
             .AsNoTracking()
-            .Where(s => s.AccountId == accountId && s.JournalEntry!.PostedAtUtc < start)
+            .Where(s => s.AccountId == account.Id && s.JournalEntry!.PostedAtUtc < start)
             .OrderByDescending(s => s.JournalEntry!.PostedAtUtc)
             .ThenByDescending(s => s.Id)
             .Select(s => s.RunningBalanceAfter)
             .FirstOrDefaultAsync(ct);
 
-        // 2. Fetch all splits in [start, end] window, ordered chronologically
+        // 2. Fetch splits in [start, end] window, ordered chronologically
         var periodSplits = await db.LedgerSplits
             .AsNoTracking()
-            .Where(s => s.AccountId == accountId 
-                        && s.JournalEntry!.PostedAtUtc >= start 
+            .Where(s => s.AccountId == account.Id
+                        && s.JournalEntry!.PostedAtUtc >= start
                         && s.JournalEntry!.PostedAtUtc <= end)
             .OrderBy(s => s.JournalEntry!.PostedAtUtc)
             .ThenBy(s => s.Id)
@@ -149,6 +137,24 @@ public class AccountService(LedgerDbContext db) : IAccountService
             totalCredit,
             closingBalance,
             periodSplits
+        );
+    }
+
+    private static AccountDto MapToDto(Account a)
+    {
+        var latestBalance = a.Splits?
+            .OrderByDescending(s => s.Id)
+            .Select(s => s.RunningBalanceAfter)
+            .FirstOrDefault() ?? 0.00m;
+
+        return new AccountDto(
+            a.Id,
+            a.AccountNumber,
+            a.Name,
+            a.Type,
+            a.Currency,
+            latestBalance,
+            a.CreatedAtUtc
         );
     }
 }

@@ -41,7 +41,7 @@ public class TransactionsController(ITransactionService transactionService) : Co
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(string transactionId, CancellationToken ct)
     {
-        var result = await transactionService.GetTransactionByIdAsync(transactionId, ct);
+        var result = await transactionService.GetTransactionByTxIdAsync(transactionId, ct);
         if (result == null)
         {
             return NotFound(new { error = $"Transaction '{transactionId}' not found." });
