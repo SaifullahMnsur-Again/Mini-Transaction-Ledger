@@ -8,8 +8,8 @@ public record AccountStatementQuery(
 );
 
 public record StatementLineItemDto(
-    Guid TransactionId,
-    string ReferenceId,
+    Guid Id,
+    string TransactionId,
     string Description,
     DateTime PostedAtUtc,
     EntryType EntryType,
