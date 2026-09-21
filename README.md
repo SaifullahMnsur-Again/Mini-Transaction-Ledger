@@ -1,6 +1,12 @@
 # Mini Transaction Ledger
 
-A robust, full-stack double-entry bookkeeping engine and financial transaction ledger built with **.NET 10**, **PostgreSQL 16**, and **React 18** with **Tailwind CSS**.
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/SaifullahMnsur-Again/Mini-Transaction-Ledger)
+
+**Repository URL:** [https://github.com/SaifullahMnsur-Again/Mini-Transaction-Ledger](https://github.com/SaifullahMnsur-Again/Mini-Transaction-Ledger)
+
+---
+
+Mini Transaction Ledger is a robust, full-stack double-entry bookkeeping engine and financial transaction ledger built with **.NET 10**, **PostgreSQL 16**, and **React 18** with **Tailwind CSS**.
 
 The system enforces atomic ledger posting, strict mathematical equilibrium ($\sum \text{Debits} = \sum \text{Credits}$), accounting normal-balance conventions across five standard account classifications, and chronological T-account statement generation with running balance audit trails.
 
@@ -229,7 +235,7 @@ From the project root directory:
 
 ```bash
 # Clone repository
-git clone [https://github.com/SaifullahMnsur-Again/Mini-Transaction-Ledger.git](https://github.com/SaifullahMnsur-Again/Mini-Transaction-Ledger.git)
+git clone https://github.com/SaifullahMnsur-Again/Mini-Transaction-Ledger.git
 cd Mini-Transaction-Ledger
 
 # Build and start all services in detached mode
