@@ -295,5 +295,3 @@ npm run dev
 
 4. Verify the new transaction displays under the **General Ledger Journal Log** below. Click **Inspect ↗** to open the audit modal.
 5. Switch to the **Account Statement** tab, select `1010-CASH`, and review the chronological audit trail, KPI cards, and CSV export.
-
-```
