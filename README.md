@@ -144,26 +144,29 @@ Every financial transaction passes through strict invariant validation before an
 
 ```mermaid
 %%{init: {
-  'theme': 'base',
+  'theme': 'dark',
   'themeVariables': {
-    'background': '#0f172a',
-    'actorBkg': '#1e293b',
-    'actorBorder': '#38bdf8',
-    'actorTextColor': '#f8fafc',
-    'actorLineColor': '#64748b',
-    'signalColor': '#38bdf8',
-    'signalTextColor': '#f8fafc',
-    'labelBoxBkgColor': '#1e293b',
-    'labelBoxBorderColor': '#38bdf8',
-    'labelTextColor': '#f8fafc',
-    'loopTextColor': '#f8fafc',
-    'noteBorderColor': '#475569',
-    'noteBkgColor': '#1e293b',
-    'noteTextColor': '#f8fafc',
-    'activationBorderColor': '#38bdf8',
-    'activationBkgColor': '#334155',
-    'altSectionBkgColor': '#1e293b',
-    'altSectionBorderColor': '#475569'
+    'darkMode': true,
+    'background': '#161b22',
+    'mainBkg': '#161b22',
+    'actorBkg': '#21262d',
+    'actorBorder': '#58a6ff',
+    'actorTextColor': '#f0f6fc',
+    'actorLineColor': '#58a6ff',
+    'signalColor': '#58a6ff',
+    'signalTextColor': '#f0f6fc',
+    'labelBoxBkgColor': '#21262d',
+    'labelBoxBorderColor': '#58a6ff',
+    'labelTextColor': '#f0f6fc',
+    'loopTextColor': '#f0f6fc',
+    'noteBorderColor': '#30363d',
+    'noteBkgColor': '#21262d',
+    'noteTextColor': '#f0f6fc',
+    'activationBorderColor': '#58a6ff',
+    'activationBkgColor': '#30363d',
+    'altSectionBkgColor': '#21262d',
+    'altSectionBorderColor': '#58a6ff',
+    'sequenceNumberColor': '#ffffff'
   }
 }}%%
 sequenceDiagram
