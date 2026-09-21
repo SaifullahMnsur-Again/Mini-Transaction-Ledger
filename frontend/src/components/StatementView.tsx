@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Account, AccountStatement, EntryTypeMetadata } from '../types/ledger';
-import { AccountTypeLabels } from '../types/ledger';
+import { AccountType, AccountTypeLabels } from '../types/ledger';
 import {
   fetchAccountStatement,
   fetchAccountByNumber,
@@ -230,11 +230,11 @@ export const StatementView: React.FC<StatementViewProps> = ({
                   {statement.accountName}
                 </span>
                 <span
-                  className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold border ${
-                    AccountTypeLabels[statement.accountType]?.badgeColor || ''
-                  }`}
+                    className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                        AccountTypeLabels[statement.accountType as AccountType]?.badgeColor || ''
+                    }`}
                 >
-                  {AccountTypeLabels[statement.accountType]?.label || 'Account'}
+                    {AccountTypeLabels[statement.accountType as AccountType]?.label || 'Account'}
                 </span>
               </div>
 

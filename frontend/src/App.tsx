@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import type { TabType } from './components/Header';
 import { AccountsView } from './components/AccountsView';
-import { TransactionView } from './components/TransactionView';
-import { TransactionsLogView } from './components/TransactionsLogView';
+import { JournalView } from './components/JournalView';
 import { StatementView } from './components/StatementView';
 import { fetchAccounts, createAccount } from './services/api';
 import type { Account, CreateAccountRequest } from './types/ledger';
@@ -55,15 +54,11 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'transaction' && (
-          <TransactionView
+        {activeTab === 'journal' && (
+          <JournalView
             accounts={accounts}
             onTransactionPosted={loadAccounts}
           />
-        )}
-
-        {activeTab === 'journal' && (
-          <TransactionsLogView />
         )}
 
         {activeTab === 'statement' && (
