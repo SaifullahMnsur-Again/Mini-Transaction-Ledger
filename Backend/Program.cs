@@ -9,8 +9,17 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
-// builder.Services.AddEndpointsApiExplorer();
-// builder.Services.AddSwaggerGen();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new()
+    {
+        Title = "Mini Transaction Ledger API",
+        Version = "v1",
+        Description = "REST API for managing accounts and transactions"
+    });
+});
+
 builder.Services.AddOpenApi();
 
 var connectionString = builder.Configuration["ConnectionStrings:DefaultConnection"]
@@ -20,6 +29,7 @@ builder.Services.AddDbContext<LedgerDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 builder.Services.AddScoped<IAccountService, AccountService>();
+builder.Services.AddScoped<ITransactionService, TransactionService>();
 
 builder.Services.AddCors(options =>
 {
@@ -34,6 +44,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     
     app.MapScalarApiReference(); 
+    
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
 app.UseCors("AllowAll");
