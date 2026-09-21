@@ -29,7 +29,16 @@ export async function fetchEntryTypesMetadata(): Promise<EntryTypeMetadata[]> {
 export async function fetchAccounts(): Promise<Account[]> {
   const response = await fetch(`${API_BASE}/accounts`);
   if (!response.ok) {
-    throw new Error(`Failed to load accounts (status ${response.status})`);
+    throw new Error(`Failed to load accounts (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function fetchAccountById(id: string): Promise<Account> {
+  const response = await fetch(`${API_BASE}/accounts/${id}`);
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.error || `Failed to fetch account (${response.status})`);
   }
   return response.json();
 }
@@ -53,6 +62,15 @@ export async function fetchAllTransactions(): Promise<TransactionResponse[]> {
   const response = await fetch(`${API_BASE}/transactions`);
   if (!response.ok) {
     throw new Error(`Failed to load transactions (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function fetchTransactionById(id: string): Promise<TransactionResponse> {
+  const response = await fetch(`${API_BASE}/transactions/${id}`);
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.error || `Failed to fetch transaction (${response.status})`);
   }
   return response.json();
 }
@@ -82,7 +100,6 @@ export async function fetchAccountStatement(
     params.append('fromUtc', new Date(fromUtc).toISOString());
   }
   if (toUtc) {
-    // Set to end of selected day if only date is passed
     const toDateObj = new Date(toUtc);
     toDateObj.setUTCHours(23, 59, 59, 999);
     params.append('toUtc', toDateObj.toISOString());

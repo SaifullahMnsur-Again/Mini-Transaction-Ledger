@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Account, AccountStatement, EntryTypeMetadata, AccountTypeMetadata } from '../types/ledger';
-import { fetchAccountStatement, fetchEntryTypesMetadata, fetchAccountTypesMetadata } from '../services/api';
+import {
+  fetchAccountStatement,
+  fetchAccountById,
+  fetchEntryTypesMetadata,
+  fetchAccountTypesMetadata,
+} from '../services/api';
+import { TransactionDetailModal } from './TransactionDetailModal';
 
 interface StatementViewProps {
   accounts: Account[];
@@ -8,6 +14,7 @@ interface StatementViewProps {
 
 export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
   const [selectedAccountId, setSelectedAccountId] = useState<string>(accounts[0]?.id || '');
+  const [selectedAccountLive, setSelectedAccountLive] = useState<Account | null>(null);
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [statement, setStatement] = useState<AccountStatement | null>(null);
@@ -15,8 +22,9 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
   const [accountTypes, setAccountTypes] = useState<AccountTypeMetadata[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inspectedTxId, setInspectedTxId] = useState<string | null>(null);
 
-  // Load dynamic metadata on mount
+  // Load backend metadata once on mount
   useEffect(() => {
     Promise.all([fetchEntryTypesMetadata(), fetchAccountTypesMetadata()])
       .then(([entries, accs]) => {
@@ -26,13 +34,22 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
       .catch((err) => console.error('Failed to load metadata in statement view:', err));
   }, []);
 
-  // Update selected account if accounts array updates and nothing is selected
+  // Sync selected account when accounts prop changes
   useEffect(() => {
     if (!selectedAccountId && accounts.length > 0) {
       setSelectedAccountId(accounts[0].id);
     }
   }, [accounts, selectedAccountId]);
 
+  // Load individual account verification state via GET /api/v1/accounts/{id}
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    fetchAccountById(selectedAccountId)
+      .then((acc) => setSelectedAccountLive(acc))
+      .catch((err) => console.error('Failed to fetch individual account:', err));
+  }, [selectedAccountId]);
+
+  // Main statement query
   const loadStatement = useCallback(async () => {
     if (!selectedAccountId) return;
     setLoading(true);
@@ -60,17 +77,69 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
   const debitMeta = entryTypes.find((e) => e.name.toLowerCase() === 'debit') || { id: 1, name: 'Debit' };
   const currentAccType = accountTypes.find((a) => a.id === statement?.accountType);
 
+  // CSV Statement Generator
+  const handleExportCsv = () => {
+    if (!statement || statement.entries.length === 0) return;
+
+    const headers = [
+      'Timestamp (UTC)',
+      'Transaction ID',
+      'Reference ID',
+      'Description',
+      'Leg Type',
+      'Amount',
+      'Running Balance After',
+    ];
+
+    const rows = statement.entries.map((e) => [
+      new Date(e.postedAtUtc).toISOString(),
+      `"${e.transactionId}"`,
+      `"${e.referenceId}"`,
+      `"${e.description.replace(/"/g, '""')}"`,
+      e.entryType === debitMeta.id ? 'DEBIT' : 'CREDIT',
+      e.amount.toFixed(2),
+      e.runningBalanceAfter.toFixed(2),
+    ]);
+
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      [
+        `# Account Statement: ${statement.accountNumber} - ${statement.accountName}`,
+        `# Currency: ${statement.currency}`,
+        `# Opening Balance: ${statement.openingBalance.toFixed(2)}`,
+        `# Closing Balance: ${statement.closingBalance.toFixed(2)}`,
+        headers.join(','),
+        ...rows.map((r) => r.join(',')),
+      ].join('\n');
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute(
+      'download',
+      `Statement_${statement.accountNumber}_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
-      {/* Account Selector & Date Range Filter */}
+      {/* Account Selector & Date Range Filter Card */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
         <div className="flex justify-between items-start mb-4">
           <div>
             <h2 className="text-sm font-bold text-slate-900">Chronological Account Statement</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Audit trail extraction with historical opening balance, debit/credit turnover, and closing balance.
+              Audit trail extraction with historical opening balance, period movements, and closing balance.
             </p>
           </div>
+          {selectedAccountLive && (
+            <span className="text-[11px] font-mono px-2.5 py-1 bg-slate-100 rounded-md text-slate-700 border border-slate-200">
+              Live Balance: <strong>{selectedAccountLive.currentBalance.toFixed(2)} {selectedAccountLive.currency}</strong>
+            </span>
+          )}
         </div>
 
         {error && (
@@ -79,8 +148,8 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5 items-end">
-          <div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5 items-end">
+          <div className="md:col-span-2">
             <label className="block text-xs font-semibold text-slate-700 mb-1">Target Account</label>
             <select
               value={selectedAccountId}
@@ -115,13 +184,21 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
             />
           </div>
 
-          <div>
+          <div className="flex gap-2">
             <button
               onClick={loadStatement}
               disabled={loading || !selectedAccountId}
-              className="w-full h-9 inline-flex items-center justify-center px-4 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
+              className="flex-1 h-9 inline-flex items-center justify-center px-3 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs cursor-pointer"
             >
-              {loading ? 'Querying...' : 'Filter Statement'}
+              {loading ? 'Querying...' : 'Filter'}
+            </button>
+            <button
+              onClick={handleExportCsv}
+              disabled={!statement || statement.entries.length === 0}
+              className="h-9 inline-flex items-center justify-center px-3 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+              title="Download statement as CSV"
+            >
+              📥 CSV
             </button>
           </div>
         </div>
@@ -130,7 +207,7 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
       {/* Statement Results */}
       {statement && (
         <div className="space-y-6">
-          {/* KPI Summary Cards */}
+          {/* 4 Financial KPI Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
               <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
@@ -230,8 +307,15 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
                           <td className="px-6 py-3.5 text-slate-600 font-mono text-[11px]">
                             {new Date(entry.postedAtUtc).toLocaleString()}
                           </td>
-                          <td className="px-6 py-3.5 font-mono font-bold text-slate-800">
-                            {entry.referenceId}
+                          <td className="px-6 py-3.5">
+                            <button
+                              onClick={() => setInspectedTxId(entry.transactionId)}
+                              className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+                              title="Inspect full transaction"
+                            >
+                              <span>{entry.referenceId}</span>
+                              <span className="text-[10px] text-slate-400">↗</span>
+                            </button>
                           </td>
                           <td className="px-6 py-3.5 text-slate-700">{entry.description}</td>
                           <td className="px-6 py-3.5">
@@ -267,6 +351,13 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
           </div>
         </div>
       )}
+
+      {/* Immutable Audit Detail Modal */}
+      <TransactionDetailModal
+        transactionId={inspectedTxId}
+        entryTypes={entryTypes}
+        onClose={() => setInspectedTxId(null)}
+      />
     </div>
   );
 };
