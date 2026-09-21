@@ -1,67 +1,68 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { Account, AccountStatement, EntryTypeMetadata, AccountTypeMetadata } from '../types/ledger';
+import type { Account, AccountStatement, EntryTypeMetadata } from '../types/ledger';
+import { AccountTypeLabels } from '../types/ledger';
 import {
   fetchAccountStatement,
-  fetchAccountById,
+  fetchAccountByNumber,
   fetchEntryTypesMetadata,
-  fetchAccountTypesMetadata,
 } from '../services/api';
 import { TransactionDetailModal } from './TransactionDetailModal';
 
 interface StatementViewProps {
   accounts: Account[];
-  initialAccountId?: string;    
+  initialAccountNumber?: string;
 }
 
-export const StatementView: React.FC<StatementViewProps> = ({ accounts, initialAccountId }) => {
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(initialAccountId || accounts[0]?.id || '');
-  const [selectedAccountLive, setSelectedAccountLive] = useState<Account | null>(null);
+export const StatementView: React.FC<StatementViewProps> = ({
+  accounts,
+  initialAccountNumber,
+}) => {
+  const [selectedAccountNumber, setSelectedAccountNumber] = useState<string>(
+    initialAccountNumber || accounts[0]?.accountNumber || ''
+  );
+  const [liveAccount, setLiveAccount] = useState<Account | null>(null);
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [statement, setStatement] = useState<AccountStatement | null>(null);
   const [entryTypes, setEntryTypes] = useState<EntryTypeMetadata[]>([]);
-  const [accountTypes, setAccountTypes] = useState<AccountTypeMetadata[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inspectedTransactionId, setInspectedTransactionId] = useState<string | null>(null);
+  const [copiedUuid, setCopiedUuid] = useState(false);
 
   useEffect(() => {
-    if (initialAccountId) {
-      setSelectedAccountId(initialAccountId);
-    }
-  }, [initialAccountId]);
-
-  useEffect(() => {
-    Promise.all([fetchEntryTypesMetadata(), fetchAccountTypesMetadata()])
-      .then(([entries, accs]) => {
-        setEntryTypes(entries);
-        setAccountTypes(accs);
-      })
-      .catch((err) => console.error('Failed to load metadata in statement view:', err));
+    fetchEntryTypesMetadata()
+      .then(setEntryTypes)
+      .catch((err) => console.error('Failed to load entry types:', err));
   }, []);
 
   useEffect(() => {
-    if (!selectedAccountId && accounts.length > 0) {
-      setSelectedAccountId(accounts[0].id);
+    if (initialAccountNumber) {
+      setSelectedAccountNumber(initialAccountNumber);
+    } else if (!selectedAccountNumber && accounts.length > 0) {
+      setSelectedAccountNumber(accounts[0].accountNumber);
     }
-  }, [accounts, selectedAccountId]);
+  }, [initialAccountNumber, accounts, selectedAccountNumber]);
 
   useEffect(() => {
-    if (!selectedAccountId) return;
-    fetchAccountById(selectedAccountId)
-      .then((acc) => setSelectedAccountLive(acc))
-      .catch((err) => console.error('Failed to fetch individual account:', err));
-  }, [selectedAccountId]);
+    if (!selectedAccountNumber) {
+      setLiveAccount(null);
+      return;
+    }
+    fetchAccountByNumber(selectedAccountNumber)
+      .then(setLiveAccount)
+      .catch((err) => console.error('Failed to fetch live account info:', err));
+  }, [selectedAccountNumber]);
 
   const loadStatement = useCallback(async () => {
-    if (!selectedAccountId) return;
+    if (!selectedAccountNumber) return;
     setLoading(true);
     setError(null);
     try {
       const data = await fetchAccountStatement(
-        selectedAccountId,
-        fromDate ? fromDate : undefined,
-        toDate ? toDate : undefined
+        selectedAccountNumber,
+        fromDate || undefined,
+        toDate || undefined
       );
       setStatement(data);
     } catch (err: any) {
@@ -69,16 +70,25 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts, initialA
     } finally {
       setLoading(false);
     }
-  }, [selectedAccountId, fromDate, toDate]);
+  }, [selectedAccountNumber, fromDate, toDate]);
 
   useEffect(() => {
-    if (selectedAccountId) {
+    if (selectedAccountNumber) {
       loadStatement();
     }
-  }, [selectedAccountId, loadStatement]);
+  }, [selectedAccountNumber, loadStatement]);
+
+  const handleCopyUuid = async (uuid: string) => {
+    try {
+      await navigator.clipboard.writeText(uuid);
+      setCopiedUuid(true);
+      setTimeout(() => setCopiedUuid(false), 2000);
+    } catch {
+      setCopiedUuid(false);
+    }
+  };
 
   const debitMeta = entryTypes.find((e) => e.name.toLowerCase() === 'debit') || { id: 1, name: 'Debit' };
-  const currentAccType = accountTypes.find((a) => a.id === statement?.accountType);
 
   const handleExportCsv = () => {
     if (!statement || statement.entries.length === 0) return;
@@ -105,6 +115,7 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts, initialA
       'data:text/csv;charset=utf-8,' +
       [
         `# Account Statement: ${statement.accountNumber} - ${statement.accountName}`,
+        `# Account UUID: ${statement.accountId}`,
         `# Currency: ${statement.currency}`,
         `# Opening Balance: ${statement.openingBalance.toFixed(2)}`,
         `# Closing Balance: ${statement.closingBalance.toFixed(2)}`,
@@ -126,17 +137,19 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts, initialA
 
   return (
     <div className="space-y-6">
+      {/* 1. Account Filter & Controls Card */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-        <div className="flex justify-between items-start mb-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
           <div>
             <h2 className="text-sm font-bold text-slate-900">Chronological Account Statement</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Audit trail extraction with historical opening balance, period movements, and closing balance.
+              Historical ledger movements and running balances.
             </p>
           </div>
-          {selectedAccountLive && (
+
+          {liveAccount && (
             <span className="text-[11px] font-mono px-2.5 py-1 bg-slate-100 rounded-md text-slate-700 border border-slate-200">
-              Live Balance: <strong>{selectedAccountLive.currentBalance.toFixed(2)} {selectedAccountLive.currency}</strong>
+              Live Balance: <strong>{liveAccount.currentBalance.toFixed(2)} {liveAccount.currency}</strong>
             </span>
           )}
         </div>
@@ -151,13 +164,13 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts, initialA
           <div className="md:col-span-2">
             <label className="block text-xs font-semibold text-slate-700 mb-1">Target Account</label>
             <select
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              value={selectedAccountNumber}
+              onChange={(e) => setSelectedAccountNumber(e.target.value)}
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white font-medium"
             >
               {accounts.map((acc) => (
-                <option key={acc.id} value={acc.id}>
-                  {acc.accountNumber} - {acc.name}
+                <option key={acc.id} value={acc.accountNumber}>
+                  {acc.accountNumber} — {acc.name}
                 </option>
               ))}
             </select>
@@ -186,7 +199,7 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts, initialA
           <div className="flex gap-2">
             <button
               onClick={loadStatement}
-              disabled={loading || !selectedAccountId}
+              disabled={loading || !selectedAccountNumber}
               className="flex-1 h-9 inline-flex items-center justify-center px-3 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs cursor-pointer"
             >
               {loading ? 'Querying...' : 'Filter'}
@@ -205,6 +218,52 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts, initialA
 
       {statement && (
         <div className="space-y-6">
+          {/* 2. High-Visibility Account Header Banner (Large Text) */}
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-mono font-extrabold text-2xl sm:text-3xl text-indigo-700 tracking-tight">
+                  {statement.accountNumber}
+                </span>
+                <span className="text-slate-300 text-xl font-light hidden sm:inline">|</span>
+                <span className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                  {statement.accountName}
+                </span>
+                <span
+                  className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                    AccountTypeLabels[statement.accountType]?.badgeColor || ''
+                  }`}
+                >
+                  {AccountTypeLabels[statement.accountType]?.label || 'Account'}
+                </span>
+              </div>
+
+              {/* Underlying Database Surrogate UUID & Quick Copy */}
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-xs font-mono text-slate-500">
+                  Record UUID: <span className="font-semibold text-slate-800">{statement.accountId}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopyUuid(statement.accountId)}
+                  className="px-2.5 py-0.5 text-xs font-semibold rounded-md bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 transition cursor-pointer"
+                >
+                  {copiedUuid ? '✓ Copied' : 'Copy UUID'}
+                </button>
+              </div>
+            </div>
+
+            <div className="text-left md:text-right border-t md:border-t-0 pt-3 md:pt-0 w-full md:w-auto border-slate-100">
+              <span className="text-xs text-slate-400 uppercase font-semibold tracking-wider block">
+                Currency
+              </span>
+              <span className="font-mono font-bold text-lg text-slate-800">
+                {statement.currency}
+              </span>
+            </div>
+          </div>
+
+          {/* 3. Balances Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
               <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
@@ -257,6 +316,7 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts, initialA
             </div>
           </div>
 
+          {/* 4. Statement Entries Audit Table */}
           <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
               <div>
