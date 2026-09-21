@@ -12,7 +12,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('accounts');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedStatementAccountId, setSelectedStatementAccountId] = useState<string>('');
+  const [selectedStatementAccountNumber, setSelectedStatementAccountNumber] = useState<string>('');
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -35,8 +35,8 @@ export default function App() {
     await loadAccounts();
   };
 
-  const handleViewStatement = (accountId: string) => {
-    setSelectedStatementAccountId(accountId);
+  const handleViewStatement = (accountNumber: string) => {
+    setSelectedStatementAccountNumber(accountNumber);
     setActiveTab('statement');
   };
 
@@ -69,7 +69,7 @@ export default function App() {
         {activeTab === 'statement' && (
           <StatementView
             accounts={accounts}
-            initialAccountId={selectedStatementAccountId}
+            initialAccountNumber={selectedStatementAccountNumber}
           />
         )}
       </main>

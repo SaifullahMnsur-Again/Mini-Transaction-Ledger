@@ -34,11 +34,12 @@ export async function fetchAccounts(): Promise<Account[]> {
   return response.json();
 }
 
-export async function fetchAccountById(id: string): Promise<Account> {
-  const response = await fetch(`${API_BASE}/accounts/${id}`);
+export async function fetchAccountByNumber(accountNumber: string): Promise<Account> {
+  const normalized = encodeURIComponent(accountNumber.trim().toUpperCase());
+  const response = await fetch(`${API_BASE}/accounts/${normalized}`);
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.error || `Failed to fetch account (${response.status})`);
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Account '${accountNumber}' not found`);
   }
   return response.json();
 }
@@ -91,27 +92,20 @@ export async function postTransaction(req: CreateTransactionRequest): Promise<Tr
 }
 
 export async function fetchAccountStatement(
-  accountId: string,
+  accountNumber: string,
   fromUtc?: string,
   toUtc?: string
 ): Promise<AccountStatement> {
+  const normalized = encodeURIComponent(accountNumber.trim().toUpperCase());
   const params = new URLSearchParams();
-  if (fromUtc) {
-    params.append('fromUtc', new Date(fromUtc).toISOString());
-  }
-  if (toUtc) {
-    const toDateObj = new Date(toUtc);
-    toDateObj.setUTCHours(23, 59, 59, 999);
-    params.append('toUtc', toDateObj.toISOString());
-  }
+  if (fromUtc) params.append('fromUtc', new Date(fromUtc).toISOString());
+  if (toUtc) params.append('toUtc', new Date(toUtc).toISOString());
 
-  const queryString = params.toString() ? `?${params.toString()}` : '';
-  const response = await fetch(`${API_BASE}/accounts/${accountId}/statement${queryString}`);
-
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const response = await fetch(`${API_BASE}/accounts/${normalized}/statement${query}`);
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.error || `Failed to fetch account statement (${response.status})`);
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Failed to fetch statement for account '${accountNumber}'`);
   }
-
   return response.json();
 }

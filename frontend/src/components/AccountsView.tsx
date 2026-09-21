@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { AccountType, AccountTypeLabels } from '../types/ledger';
 import type { Account, CreateAccountRequest } from '../types/ledger';
-import { fetchAccountById } from '../services/api';
+import { fetchAccountByNumber } from '../services/api';
 
 interface AccountsViewProps {
   accounts: Account[];
   loading: boolean;
   onRefresh: () => Promise<void>;
   onCreateAccount: (req: CreateAccountRequest) => Promise<void>;
-  onViewStatement: (accountId: string) => void;
+  onViewStatement: (accountNumber: string) => void;
 }
 
 export const AccountsView: React.FC<AccountsViewProps> = ({
@@ -27,8 +27,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
 
-  // Search by ID State
-  const [searchQuery, setSearchQuery] = useState('');
+  // Pure Backend Account Number Search State
+  const [searchNumber, setSearchNumber] = useState('');
   const [searchedAccount, setSearchedAccount] = useState<Account | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -41,7 +41,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
     try {
       await onCreateAccount({
-        accountNumber: accountNumber.trim(),
+        accountNumber: accountNumber.trim().toUpperCase(),
         name: name.trim(),
         type: Number(type) as AccountType,
         currency: currency.trim().toUpperCase(),
@@ -56,9 +56,10 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     }
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
+  // Pure backend search: hits GET /api/v1/accounts/{accountNumber} directly
+  const handleBackendSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    const query = searchQuery.trim();
+    const query = searchNumber.trim();
     if (!query) return;
 
     setSearchLoading(true);
@@ -66,19 +67,10 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setSearchedAccount(null);
 
     try {
-      // Backend GET /api/v1/accounts/{id} lookup
-      const result = await fetchAccountById(query);
-      setSearchedAccount(result);
+      const data = await fetchAccountByNumber(query);
+      setSearchedAccount(data);
     } catch (err: any) {
-      // Fallback: match by account number against current client-side state
-      const localMatch = accounts.find(
-        (a) => a.accountNumber.toLowerCase() === query.toLowerCase()
-      );
-      if (localMatch) {
-        setSearchedAccount(localMatch);
-      } else {
-        setSearchError(err.message || `No account found with ID or code '${query}'`);
-      }
+      setSearchError(err.message || `Account '${query}' was not found in the ledger database.`);
     } finally {
       setSearchLoading(false);
     }
@@ -86,79 +78,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* 1. Account Lookup by ID / Code Card */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-        <h2 className="text-sm font-bold text-slate-900 mb-1">Account Lookup & Audit Inspection</h2>
-        <p className="text-xs text-slate-500 mb-4">
-          Verify individual account balances or jump straight to its chronological audit statement.
-        </p>
-
-        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2 max-w-xl">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Enter Account ID (UUID) or Code (e.g. 1010-CASH)..."
-            className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono bg-slate-50/50 focus:bg-white"
-          />
-          <button
-            type="submit"
-            disabled={searchLoading || !searchQuery.trim()}
-            className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg transition cursor-pointer"
-          >
-            {searchLoading ? 'Searching...' : 'Search Account'}
-          </button>
-        </form>
-
-        {searchError && (
-          <div className="mt-3 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
-            {searchError}
-          </div>
-        )}
-
-        {searchedAccount && (
-          <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-sm text-slate-900">
-                  {searchedAccount.accountNumber}
-                </span>
-                <span className="text-xs font-semibold text-slate-700">
-                  {searchedAccount.name}
-                </span>
-                <span
-                  className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                    AccountTypeLabels[searchedAccount.type]?.badgeColor || ''
-                  }`}
-                >
-                  {AccountTypeLabels[searchedAccount.type]?.label || 'Account'}
-                </span>
-              </div>
-              <p className="text-[11px] font-mono text-slate-500 mt-1">
-                UUID: {searchedAccount.id} • Live Balance:{' '}
-                <span className="font-bold text-slate-900">
-                  {searchedAccount.currentBalance.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}{' '}
-                  {searchedAccount.currency}
-                </span>
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => onViewStatement(searchedAccount.id)}
-              className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition cursor-pointer flex items-center gap-1.5"
-            >
-              <span>View Statement</span>
-              <span>↗</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* 2. Create Account Card */}
+      {/* 1. Create Account Card */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
         <h2 className="text-sm font-bold text-slate-900">Create New Ledger Account</h2>
         <p className="text-xs text-slate-500 mt-0.5 mb-4">
@@ -178,7 +98,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3.5">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Account Code</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Account Number</label>
             <input
               type="text"
               required
@@ -240,21 +160,113 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         </form>
       </div>
 
-      {/* 3. Accounts List Table */}
+      {/* 2. Chart of Accounts & Backend Lookup */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Chart of Accounts</h3>
-            <p className="text-xs text-slate-500">Live running balances across active ledger accounts</p>
+        {/* Header with Server Query Form */}
+        <div className="p-6 border-b border-slate-200 bg-slate-50/50">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Chart of Accounts</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Master general ledger view. Query backend directly by Account Number.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <form onSubmit={handleBackendSearch} className="flex gap-2 w-full sm:w-auto">
+                <input
+                  type="text"
+                  value={searchNumber}
+                  onChange={(e) => setSearchNumber(e.target.value)}
+                  placeholder="Query Account No (e.g. 1010-CASH)..."
+                  className="px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono uppercase w-full sm:w-64 bg-white"
+                />
+                <button
+                  type="submit"
+                  disabled={searchLoading || !searchNumber.trim()}
+                  className="px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg transition cursor-pointer shrink-0"
+                >
+                  {searchLoading ? 'Searching...' : 'Search'}
+                </button>
+              </form>
+
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer shrink-0"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
-          <button
-            onClick={onRefresh}
-            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer"
-          >
-            Refresh
-          </button>
+
+          {/* Search Error Message */}
+          {searchError && (
+            <div className="mt-3 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+              {searchError}
+            </div>
+          )}
+
+          {/* Server Query Result Banner */}
+          {searchedAccount && (
+            <div className="mt-4 p-3.5 rounded-lg bg-white border border-indigo-200 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                    Query Result
+                  </span>
+                  <span className="font-mono font-bold text-xs text-slate-900">
+                    {searchedAccount.accountNumber}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-700">
+                    {searchedAccount.name}
+                  </span>
+                  <span
+                    className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      AccountTypeLabels[searchedAccount.type]?.badgeColor || ''
+                    }`}
+                  >
+                    {AccountTypeLabels[searchedAccount.type]?.label || 'Account'}
+                  </span>
+                </div>
+                <p className="text-[11px] font-mono text-slate-500 mt-1">
+                  Live Balance:{' '}
+                  <span className="font-bold text-slate-900">
+                    {searchedAccount.currentBalance.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    {searchedAccount.currency}
+                  </span>
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => onViewStatement(searchedAccount.accountNumber)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition cursor-pointer flex items-center gap-1"
+                >
+                  <span>View Statement</span>
+                  <span>↗</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchedAccount(null);
+                    setSearchNumber('');
+                  }}
+                  className="px-2 py-1.5 text-xs text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                  title="Clear result"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
+        {/* Master Accounts Table */}
         {loading ? (
           <div className="p-8 text-center text-xs text-slate-500">Loading accounts from backend...</div>
         ) : accounts.length === 0 ? (
@@ -266,7 +278,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
                 <tr>
-                  <th className="px-6 py-3">Code</th>
+                  <th className="px-6 py-3">Account Number</th>
                   <th className="px-6 py-3">Account Name</th>
                   <th className="px-6 py-3">Classification</th>
                   <th className="px-6 py-3">Normal Balance</th>
@@ -280,22 +292,29 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   const meta = AccountTypeLabels[acc.type];
                   return (
                     <tr key={acc.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-6 py-3.5 font-mono font-bold text-slate-800">{acc.accountNumber}</td>
+                      <td className="px-6 py-3.5 font-mono font-bold text-slate-800 whitespace-nowrap">
+                        {acc.accountNumber}
+                      </td>
                       <td className="px-6 py-3.5 text-slate-900 font-semibold">{acc.name}</td>
                       <td className="px-6 py-3.5">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${meta.badgeColor}`}>
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${meta.badgeColor}`}
+                        >
                           {meta.label}
                         </span>
                       </td>
                       <td className="px-6 py-3.5 text-slate-500">{meta.normalBalance}-Normal</td>
                       <td className="px-6 py-3.5 font-mono text-slate-600">{acc.currency}</td>
                       <td className="px-6 py-3.5 text-right font-mono font-bold text-slate-900 text-sm">
-                        {acc.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {acc.currentBalance.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </td>
                       <td className="px-6 py-3.5 text-right whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => onViewStatement(acc.id)}
+                          onClick={() => onViewStatement(acc.accountNumber)}
                           className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer inline-flex items-center gap-1"
                         >
                           Statement ↗
