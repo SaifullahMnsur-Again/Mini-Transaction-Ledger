@@ -146,21 +146,24 @@ Every financial transaction passes through strict invariant validation before an
 %%{init: {
   'theme': 'base',
   'themeVariables': {
-    'actorBkg': '#21262d',
-    'actorBorder': '#58a6ff',
-    'actorTextColor': '#ffffff',
-    'actorLineColor': '#30363d',
-    'signalColor': '#58a6ff',
-    'signalTextColor': '#ffffff',
-    'labelBoxBkgColor': '#161b22',
-    'labelBoxBorderColor': '#58a6ff',
-    'labelTextColor': '#ffffff',
-    'loopTextColor': '#ffffff',
-    'noteBorderColor': '#30363d',
-    'noteBkgColor': '#161b22',
-    'noteTextColor': '#ffffff',
-    'activationBorderColor': '#58a6ff',
-    'activationBkgColor': '#30363d'
+    'background': '#0f172a',
+    'actorBkg': '#1e293b',
+    'actorBorder': '#38bdf8',
+    'actorTextColor': '#f8fafc',
+    'actorLineColor': '#64748b',
+    'signalColor': '#38bdf8',
+    'signalTextColor': '#f8fafc',
+    'labelBoxBkgColor': '#1e293b',
+    'labelBoxBorderColor': '#38bdf8',
+    'labelTextColor': '#f8fafc',
+    'loopTextColor': '#f8fafc',
+    'noteBorderColor': '#475569',
+    'noteBkgColor': '#1e293b',
+    'noteTextColor': '#f8fafc',
+    'activationBorderColor': '#38bdf8',
+    'activationBkgColor': '#334155',
+    'altSectionBkgColor': '#1e293b',
+    'altSectionBorderColor': '#475569'
   }
 }}%%
 sequenceDiagram
@@ -191,7 +194,6 @@ sequenceDiagram
         Controller-->>Front: 201 Created (TX-XXXXXX assigned)
         Front-->>User: Render Receipt Card & Refresh Journal Feed
     end
-
 ```
 
 ### 2. Normal Balance Conventions
