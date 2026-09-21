@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Backend.Data;
 using Backend.DTOs;
 using Backend.Enums;
@@ -36,9 +37,7 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
                 $"Transaction is unbalanced. Total Debit: {totalDebit:F4}, Total Credit: {totalCredit:F4}. Difference: {Math.Abs(totalDebit - totalCredit):F4}.");
         }
 
-        var normalizedRef = request.ReferenceId.Trim();
-
-        // 3. Single Batch Query for all distinct accounts and their current balances (O(1) round-trip)
+        // 3. Batch Query for accounts and current running balances
         var distinctAccountIds = request.Splits
             .Select(s => s.AccountId)
             .Distinct()
@@ -53,7 +52,6 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
                 a.AccountNumber,
                 a.Name,
                 a.Type,
-                // Correlated subquery translated to SQL to fetch latest balance in the same round-trip
                 CurrentBalance = db.LedgerSplits
                     .Where(s => s.AccountId == a.Id)
                     .OrderByDescending(s => s.Id)
@@ -62,7 +60,6 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
             })
             .ToDictionaryAsync(a => a.Id, ct);
 
-        // Verify all required accounts exist
         foreach (var splitReq in request.Splits)
         {
             if (!accountsMap.ContainsKey(splitReq.AccountId))
@@ -75,23 +72,16 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         try
         {
-            var existing = await db.JournalEntries
-                .AsNoTracking()
-                .AnyAsync(j => j.ReferenceId == normalizedRef, ct);
-
-            if (existing)
-            {
-                throw new InvalidOperationException($"A transaction with ReferenceId '{request.ReferenceId}' has already been processed.");
-            }
+            // Server generates unique TransactionId (no frontend input, no collisions)
+            var generatedTxId = GenerateTransactionId();
 
             var journalEntry = new JournalEntry
             {
-                ReferenceId = normalizedRef,
+                TransactionId = generatedTxId,
                 Description = request.Description?.Trim() ?? string.Empty,
                 PostedAtUtc = DateTime.UtcNow
             };
 
-            // In-memory balance tracking across legs within the transaction
             var runningBalances = accountsMap.ToDictionary(k => k.Key, v => v.Value.CurrentBalance);
             var splitResponses = new List<LedgerSplitDto>();
 
@@ -100,8 +90,6 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
                 var account = accountsMap[splitReq.AccountId];
                 var priorBalance = runningBalances[account.Id];
 
-                // Debit-Normal (Asset=1, Expense=5): Debit adds, Credit subtracts
-                // Credit-Normal (Liability=2, Equity=3, Revenue=4): Credit adds, Debit subtracts
                 var isDebitNormal = account.Type is AccountType.Asset or AccountType.Expense;
 
                 decimal newRunningBalance;
@@ -148,7 +136,7 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
 
             return new TransactionResponseDto(
                 journalEntry.Id,
-                journalEntry.ReferenceId,
+                journalEntry.TransactionId,
                 journalEntry.Description,
                 journalEntry.PostedAtUtc,
                 splitResponses
@@ -161,20 +149,35 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
         }
     }
 
-    public async Task<TransactionResponseDto?> GetTransactionByReferenceAsync(string referenceId, CancellationToken ct = default)
+    public async Task<TransactionResponseDto?> GetTransactionByIdAsync(string transactionId, CancellationToken ct = default)
     {
-        var normalizedRef = referenceId.Trim();
-        var entry = await db.JournalEntries
-            .AsNoTracking()
-            .Include(j => j.Splits)
-                .ThenInclude(s => s.Account)
-            .FirstOrDefaultAsync(j => j.ReferenceId == normalizedRef, ct);
+        var normalized = transactionId.Trim();
+        JournalEntry? entry = null;
+
+        // Support matching either by Guid or by the generated TransactionId (e.g. TX-20260921-...)
+        if (Guid.TryParse(normalized, out var guidId))
+        {
+            entry = await db.JournalEntries
+                .AsNoTracking()
+                .Include(j => j.Splits)
+                    .ThenInclude(s => s.Account)
+                .FirstOrDefaultAsync(j => j.Id == guidId, ct);
+        }
+
+        if (entry == null)
+        {
+            entry = await db.JournalEntries
+                .AsNoTracking()
+                .Include(j => j.Splits)
+                    .ThenInclude(s => s.Account)
+                .FirstOrDefaultAsync(j => j.TransactionId == normalized, ct);
+        }
 
         if (entry == null) return null;
 
         return new TransactionResponseDto(
             entry.Id,
-            entry.ReferenceId,
+            entry.TransactionId,
             entry.Description,
             entry.PostedAtUtc,
             entry.Splits.Select(s => new LedgerSplitDto(
@@ -199,7 +202,7 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
 
         return entries.Select(entry => new TransactionResponseDto(
             entry.Id,
-            entry.ReferenceId,
+            entry.TransactionId,
             entry.Description,
             entry.PostedAtUtc,
             entry.Splits.Select(s => new LedgerSplitDto(
@@ -211,5 +214,11 @@ public class TransactionService(LedgerDbContext db) : ITransactionService
                 s.RunningBalanceAfter
             )).ToList()
         ));
+    }
+
+    private static string GenerateTransactionId()
+    {
+        var randomBytes = RandomNumberGenerator.GetBytes(3);
+        return $"TX-{Convert.ToHexString(randomBytes)}";
     }
 }

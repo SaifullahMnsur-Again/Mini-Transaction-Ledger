@@ -8,7 +8,7 @@ public class JournalEntry
 
     [Required]
     [MaxLength(100)]
-    public string ReferenceId { get; set; } = string.Empty;
+    public string TransactionId { get; set; } = string.Empty;
     
     [MaxLength(500)]
     public string Description {get; set;} = string.Empty;

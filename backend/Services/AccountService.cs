@@ -114,7 +114,7 @@ public class AccountService(LedgerDbContext db) : IAccountService
             .ThenBy(s => s.Id)
             .Select(s => new StatementLineItemDto(
                 s.JournalEntry!.Id,
-                s.JournalEntry!.ReferenceId,
+                s.JournalEntry!.TransactionId,
                 s.JournalEntry!.Description,
                 s.JournalEntry!.PostedAtUtc,
                 s.Type,

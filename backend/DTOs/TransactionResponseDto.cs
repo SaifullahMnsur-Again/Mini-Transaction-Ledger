@@ -2,7 +2,7 @@ namespace Backend.DTOs;
 
 public record TransactionResponseDto(
     Guid Id,
-    string ReferenceId,
+    string TransactionId,
     string Description,
     DateTime PostedAtUtc,
     List<LedgerSplitDto> Splits

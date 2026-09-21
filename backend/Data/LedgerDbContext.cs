@@ -18,7 +18,7 @@ public class LedgerDbContext(DbContextOptions<LedgerDbContext> options) : DbCont
         });
         modelBuilder.Entity<JournalEntry>(entity =>
         {
-            entity.HasIndex(j => j.ReferenceId).IsUnique();
+            entity.HasIndex(j => j.TransactionId).IsUnique();
         });
         modelBuilder.Entity<LedgerSplit>(entity =>
         {

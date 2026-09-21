@@ -6,7 +6,7 @@ namespace Backend.Controllers;
 
 [ApiController]
 [Route("api/v1/[controller]")]
-public class TransactionsController(ITransactionService transactionService): ControllerBase
+public class TransactionsController(ITransactionService transactionService) : ControllerBase
 {
     [HttpPost]
     [ProducesResponseType(typeof(TransactionResponseDto), StatusCodes.Status201Created)]
@@ -16,11 +16,15 @@ public class TransactionsController(ITransactionService transactionService): Con
         try
         {
             var result = await transactionService.PostTransactionAsync(request, ct);
-            return CreatedAtAction(nameof(GetByReference), new { referenceId = result.ReferenceId }, result);
+            return CreatedAtAction(nameof(GetById), new { transactionId = result.TransactionId }, result);
         }
-        catch (InvalidOperationException e)
+        catch (InvalidOperationException ex)
         {
-            return BadRequest(new {error = e.Message});
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = ex.Message });
         }
     }
 
@@ -32,12 +36,17 @@ public class TransactionsController(ITransactionService transactionService): Con
         return Ok(results);
     }
 
-    [HttpGet("{referenceId}")]
+    [HttpGet("{transactionId}")]
     [ProducesResponseType(typeof(TransactionResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetByReference(string referenceId, CancellationToken ct)
+    public async Task<IActionResult> GetById(string transactionId, CancellationToken ct)
     {
-        var result = await transactionService.GetTransactionByReferenceAsync(referenceId, ct);
-        return result is not null ? Ok(result) : NotFound(new {error = $"Transaction '{{referenceId}}' not found."});
+        var result = await transactionService.GetTransactionByIdAsync(transactionId, ct);
+        if (result == null)
+        {
+            return NotFound(new { error = $"Transaction '{transactionId}' not found." });
+        }
+
+        return Ok(result);
     }
 }
