@@ -36,9 +36,13 @@ public class AccountsController(IAccountService accountService) : ControllerBase
     [HttpGet("{id:guid}")]
     [ProducesResponseType(typeof(AccountDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetAccountById(Guid id, CancellationToken ct = default)
+    public async Task<IActionResult> GetAccountById([FromRoute] Guid id, CancellationToken ct = default)
     {
         var account = await accountService.GetAccountByIdAsync(id, ct);
-        return account is not null ? Ok(account) : NotFound();
+        if (account is null)
+        {
+            return NotFound(new { error = $"Account with ID '{id}' was not found." });
+        }
+        return Ok(account);
     }
 }

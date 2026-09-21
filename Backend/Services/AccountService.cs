@@ -41,38 +41,41 @@ public class AccountService(LedgerDbContext db) : IAccountService
 
     public async Task<IEnumerable<AccountDto>> GetAllAccountsAsync(CancellationToken ct = default)
     {
-        return await db.Accounts
+        var accounts = await db.Accounts
             .AsNoTracking()
-            .Select(a => new AccountDto(
-                a.Id,
-                a.AccountNumber,
-                a.Name,
-                a.Type,
-                a.Currency,
-                a.Splits.OrderByDescending(s => s.JournalEntry!.PostedAtUtc)
-                    .Select(s => s.RunningBalanceAfter)
-                    .FirstOrDefault(),
-                a.CreatedAtUtc
-            ))
+            .Include(a => a.Splits)
+            .OrderBy(a => a.AccountNumber)
             .ToListAsync(ct);
+
+        return accounts.Select(MapToDto);
     }
 
+    
     public async Task<AccountDto?> GetAccountByIdAsync(Guid id, CancellationToken ct = default)
     {
-        return await db.Accounts
+        var account = await db.Accounts
             .AsNoTracking()
-            .Where(a => a.Id == id)
-            .Select(a => new AccountDto(
-                a.Id,
-                a.AccountNumber,
-                a.Name,
-                a.Type,
-                a.Currency,
-                a.Splits.OrderByDescending(s => s.JournalEntry!.PostedAtUtc)
-                    .Select(s => s.RunningBalanceAfter)
-                    .FirstOrDefault(),
-                a.CreatedAtUtc
-            ))
-            .FirstOrDefaultAsync(ct);
+            .Include(a => a.Splits)
+            .FirstOrDefaultAsync(a => a.Id == id, ct);
+        
+        return account is not null ?  MapToDto(account) : null;
+    }
+    
+    private static  AccountDto MapToDto(Account a)
+    {
+        var latestBalance = a.Splits?
+            .OrderByDescending(s => s.Id)
+            .Select(s => s.RunningBalanceAfter)
+            .FirstOrDefault() ?? 0.00m;
+
+        return new AccountDto(
+            a.Id,
+            a.AccountNumber,
+            a.Name,
+            a.Type,
+            a.Currency,
+            latestBalance,
+            a.CreatedAtUtc
+            );
     }
 }
