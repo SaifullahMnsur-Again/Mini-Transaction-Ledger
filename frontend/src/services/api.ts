@@ -3,9 +3,27 @@ import type {
   CreateAccountRequest,
   CreateTransactionRequest,
   TransactionResponse,
+  AccountTypeMetadata,
+  EntryTypeMetadata,
 } from '../types/ledger';
 
-const API_BASE = '/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+export async function fetchAccountTypesMetadata(): Promise<AccountTypeMetadata[]> {
+  const response = await fetch(`${API_BASE}/metadata/account-types`);
+  if (!response.ok) {
+    throw new Error(`Failed to load account types metadata (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function fetchEntryTypesMetadata(): Promise<EntryTypeMetadata[]> {
+  const response = await fetch(`${API_BASE}/metadata/entry-types`);
+  if (!response.ok) {
+    throw new Error(`Failed to load entry types metadata (${response.status})`);
+  }
+  return response.json();
+}
 
 export async function fetchAccounts(): Promise<Account[]> {
   const response = await fetch(`${API_BASE}/accounts`);
@@ -30,6 +48,14 @@ export async function createAccount(req: CreateAccountRequest): Promise<Account>
   return response.json();
 }
 
+export async function fetchAllTransactions(): Promise<TransactionResponse[]> {
+  const response = await fetch(`${API_BASE}/transactions`);
+  if (!response.ok) {
+    throw new Error(`Failed to load transactions (${response.status})`);
+  }
+  return response.json();
+}
+
 export async function postTransaction(req: CreateTransactionRequest): Promise<TransactionResponse> {
   const response = await fetch(`${API_BASE}/transactions`, {
     method: 'POST',
@@ -42,13 +68,5 @@ export async function postTransaction(req: CreateTransactionRequest): Promise<Tr
     throw new Error(errorBody?.error || `Failed to post transaction (${response.status})`);
   }
 
-  return response.json();
-}
-
-export async function fetchAllTransactions(): Promise<TransactionResponse[]> {
-  const response = await fetch(`${API_BASE}/transactions`);
-  if (!response.ok) {
-    throw new Error(`Failed to load transactions (status ${response.status})`);
-  }
   return response.json();
 }

@@ -39,6 +39,13 @@ export const AccountTypeLabels: Record<
   },
 };
 
+export const EntryType = {
+  Debit: 1,
+  Credit: 2,
+} as const;
+
+export type EntryType = (typeof EntryType)[keyof typeof EntryType];
+
 export interface Account {
   id: string;
   accountNumber: string;
@@ -54,4 +61,33 @@ export interface CreateAccountRequest {
   name: string;
   type: AccountType;
   currency: string;
+}
+
+export interface LedgerSplitRequest {
+  accountId: string;
+  type: EntryType;
+  amount: number;
+}
+
+export interface CreateTransactionRequest {
+  referenceId: string;
+  description: string;
+  splits: LedgerSplitRequest[];
+}
+
+export interface LedgerSplitResponse {
+  accountId: string;
+  accountNumber: string;
+  accountName: string;
+  type: EntryType;
+  amount: number;
+  runningBalanceAfter: number;
+}
+
+export interface TransactionResponse {
+  id: string;
+  referenceId: string;
+  description: string;
+  postedAtUtc: string;
+  splits: LedgerSplitResponse[];
 }

@@ -1,20 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { EntryType } from '../types/ledger';
-import type { TransactionResponse } from '../types/ledger';
-import { fetchAllTransactions } from '../services/api';
+import type { TransactionResponse, EntryTypeMetadata } from '../types/ledger';
+import { fetchAllTransactions, fetchEntryTypesMetadata } from '../services/api';
 
 export const TransactionsLogView: React.FC = () => {
   const [transactions, setTransactions] = useState<TransactionResponse[]>([]);
+  const [entryTypes, setEntryTypes] = useState<EntryTypeMetadata[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const loadTransactions = useCallback(async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchAllTransactions();
-      setTransactions(data);
+      const [txData, typesData] = await Promise.all([
+        fetchAllTransactions(),
+        fetchEntryTypesMetadata(),
+      ]);
+      setTransactions(txData);
+      setEntryTypes(typesData);
     } catch (err: any) {
       setError(err.message || 'Failed to load transaction logs');
     } finally {
@@ -23,8 +27,11 @@ export const TransactionsLogView: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    loadTransactions();
-  }, [loadTransactions]);
+    loadData();
+  }, [loadData]);
+
+  const debitMeta = entryTypes.find((e) => e.name.toLowerCase() === 'debit') || { id: 1, name: 'Debit' };
+  const creditMeta = entryTypes.find((e) => e.name.toLowerCase() === 'credit') || { id: 2, name: 'Credit' };
 
   const filtered = transactions.filter(
     (tx) =>
@@ -35,7 +42,6 @@ export const TransactionsLogView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Search & Actions Bar */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
@@ -53,7 +59,7 @@ export const TransactionsLogView: React.FC = () => {
               className="px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-64"
             />
             <button
-              onClick={loadTransactions}
+              onClick={loadData}
               disabled={loading}
               className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition cursor-pointer"
             >
@@ -69,7 +75,6 @@ export const TransactionsLogView: React.FC = () => {
         </div>
       )}
 
-      {/* Transactions List */}
       {loading ? (
         <div className="p-12 text-center text-xs text-slate-500 bg-white rounded-xl border border-slate-200">
           Loading general journal logs...
@@ -82,11 +87,11 @@ export const TransactionsLogView: React.FC = () => {
         <div className="space-y-4">
           {filtered.map((tx) => {
             const totalDebit = tx.splits
-              .filter((s) => s.type === EntryType.Debit)
+              .filter((s) => s.type === debitMeta.id)
               .reduce((sum, s) => sum + s.amount, 0);
 
             const totalCredit = tx.splits
-              .filter((s) => s.type === EntryType.Credit)
+              .filter((s) => s.type === creditMeta.id)
               .reduce((sum, s) => sum + s.amount, 0);
 
             const isBalanced = Math.abs(totalDebit - totalCredit) < 0.0001;
@@ -96,7 +101,6 @@ export const TransactionsLogView: React.FC = () => {
                 key={tx.id}
                 className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs hover:border-slate-300 transition"
               >
-                {/* Entry Header */}
                 <div className="px-5 py-3.5 bg-slate-50/70 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
                   <div className="flex items-center gap-3">
                     <span className="px-2.5 py-1 rounded-md bg-slate-900 text-white font-mono text-xs font-bold">
@@ -126,7 +130,6 @@ export const TransactionsLogView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Ledger Splits Table */}
                 <div className="p-4 overflow-x-auto">
                   <table className="min-w-full divide-y divide-slate-100 text-left text-xs">
                     <thead>
@@ -148,21 +151,21 @@ export const TransactionsLogView: React.FC = () => {
                           <td className="py-2.5 px-3">
                             <span
                               className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                s.type === EntryType.Debit
+                                s.type === debitMeta.id
                                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                   : 'bg-amber-50 text-amber-700 border border-amber-200'
                               }`}
                             >
-                              {s.type === EntryType.Debit ? 'DEBIT' : 'CREDIT'}
+                              {s.type === debitMeta.id ? 'DEBIT' : 'CREDIT'}
                             </span>
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">
-                            {s.type === EntryType.Debit
+                            {s.type === debitMeta.id
                               ? s.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })
                               : '-'}
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">
-                            {s.type === EntryType.Credit
+                            {s.type === creditMeta.id
                               ? s.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })
                               : '-'}
                           </td>
