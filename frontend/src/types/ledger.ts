@@ -70,7 +70,6 @@ export interface LedgerSplitRequest {
 }
 
 export interface CreateTransactionRequest {
-  referenceId: string;
   description: string;
   splits: LedgerSplitRequest[];
 }
@@ -85,9 +84,45 @@ export interface LedgerSplitResponse {
 }
 
 export interface TransactionResponse {
-  id: string;
-  referenceId: string;
+  id?: string;
+  transactionId: string;
   description: string;
   postedAtUtc: string;
   splits: LedgerSplitResponse[];
+}
+
+export interface AccountTypeMetadata {
+  id: number;
+  name: string;
+  normalBalance: string;
+}
+
+export interface EntryTypeMetadata {
+  id: number;
+  name: string;
+  description: string;
+}
+
+export interface StatementEntry {
+  transactionId: string;
+  postedAtUtc: string;
+  description: string;
+  entryType: number;
+  amount: number;
+  runningBalanceAfter: number;
+}
+
+export interface AccountStatement {
+  accountId: string;
+  accountNumber: string;
+  accountName: string;
+  accountType: number;
+  currency: string;
+  openingBalance: number;
+  closingBalance: number;
+  totalDebit: number;
+  totalCredit: number;
+  fromUtc?: string;
+  toUtc?: string;
+  entries: StatementEntry[];
 }

@@ -9,7 +9,7 @@ export const TransactionsLogView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [inspectedReferenceId, setInspectedReferenceId] = useState<string | null>(null);
+  const [inspectedTransactionId, setInspectedTransactionId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -37,7 +37,7 @@ export const TransactionsLogView: React.FC = () => {
 
   const filtered = transactions.filter(
     (tx) =>
-      tx.referenceId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tx.transactionId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       tx.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       tx.splits.some((s) => s.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()))
   );
@@ -50,13 +50,13 @@ export const TransactionsLogView: React.FC = () => {
           <div>
             <h2 className="text-sm font-bold text-slate-900">General Journal Log Book</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              High-level chronological journal. Click any transaction or reference ID to view the full audit breakdown.
+              High-level chronological journal. Click any transaction ID to view the full double-entry audit breakdown.
             </p>
           </div>
           <div className="flex gap-2 w-full sm:w-auto">
             <input
               type="text"
-              placeholder="Search reference, memo, account..."
+              placeholder="Search transaction ID, memo, account..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-64 bg-slate-50/50 focus:bg-white"
@@ -93,7 +93,7 @@ export const TransactionsLogView: React.FC = () => {
             <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
                 <tr>
-                  <th className="px-5 py-3.5">Reference ID</th>
+                  <th className="px-5 py-3.5">Transaction ID</th>
                   <th className="px-5 py-3.5">Date (UTC)</th>
                   <th className="px-5 py-3.5">Description</th>
                   <th className="px-5 py-3.5">Accounts Involved</th>
@@ -113,14 +113,14 @@ export const TransactionsLogView: React.FC = () => {
 
                   return (
                     <tr
-                      key={tx.id}
-                      onClick={() => setInspectedReferenceId(tx.referenceId)}
+                      key={tx.transactionId}
+                      onClick={() => setInspectedTransactionId(tx.transactionId)}
                       className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
                     >
-                      {/* Reference Badge */}
+                      {/* Transaction ID Badge */}
                       <td className="px-5 py-3.5 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1 font-mono font-bold text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-md group-hover:bg-indigo-600 group-hover:text-white transition">
-                          {tx.referenceId}
+                          {tx.transactionId}
                         </span>
                       </td>
 
@@ -142,12 +142,10 @@ export const TransactionsLogView: React.FC = () => {
                       {/* Summary Route: Debit -> Credit */}
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-1.5 flex-wrap text-[11px] font-mono">
-                          {/* Debit Accounts */}
                           <span className="text-emerald-700 font-bold">
                             {debits.map((d) => d.accountNumber).join(', ') || 'None'}
                           </span>
                           <span className="text-slate-400">→</span>
-                          {/* Credit Accounts */}
                           <span className="text-amber-700 font-bold">
                             {credits.map((c) => c.accountNumber).join(', ') || 'None'}
                           </span>
@@ -181,7 +179,7 @@ export const TransactionsLogView: React.FC = () => {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setInspectedReferenceId(tx.referenceId);
+                            setInspectedTransactionId(tx.transactionId);
                           }}
                           className="text-xs font-semibold text-slate-500 hover:text-indigo-600 inline-flex items-center gap-1 cursor-pointer"
                         >
@@ -199,9 +197,9 @@ export const TransactionsLogView: React.FC = () => {
 
       {/* Audit Detail Modal */}
       <TransactionDetailModal
-        identifier={inspectedReferenceId}
+        identifier={inspectedTransactionId}
         entryTypes={entryTypes}
-        onClose={() => setInspectedReferenceId(null)}
+        onClose={() => setInspectedTransactionId(null)}
       />
     </div>
   );

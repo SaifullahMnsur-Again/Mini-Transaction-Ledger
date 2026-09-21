@@ -22,9 +22,8 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
   const [accountTypes, setAccountTypes] = useState<AccountTypeMetadata[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [inspectedTxId, setInspectedTxId] = useState<string | null>(null);
+  const [inspectedTransactionId, setInspectedTransactionId] = useState<string | null>(null);
 
-  // Load backend metadata once on mount
   useEffect(() => {
     Promise.all([fetchEntryTypesMetadata(), fetchAccountTypesMetadata()])
       .then(([entries, accs]) => {
@@ -34,14 +33,12 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
       .catch((err) => console.error('Failed to load metadata in statement view:', err));
   }, []);
 
-  // Sync selected account when accounts prop changes
   useEffect(() => {
     if (!selectedAccountId && accounts.length > 0) {
       setSelectedAccountId(accounts[0].id);
     }
   }, [accounts, selectedAccountId]);
 
-  // Load individual account verification state via GET /api/v1/accounts/{id}
   useEffect(() => {
     if (!selectedAccountId) return;
     fetchAccountById(selectedAccountId)
@@ -49,7 +46,6 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
       .catch((err) => console.error('Failed to fetch individual account:', err));
   }, [selectedAccountId]);
 
-  // Main statement query
   const loadStatement = useCallback(async () => {
     if (!selectedAccountId) return;
     setLoading(true);
@@ -77,14 +73,12 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
   const debitMeta = entryTypes.find((e) => e.name.toLowerCase() === 'debit') || { id: 1, name: 'Debit' };
   const currentAccType = accountTypes.find((a) => a.id === statement?.accountType);
 
-  // CSV Statement Generator
   const handleExportCsv = () => {
     if (!statement || statement.entries.length === 0) return;
 
     const headers = [
       'Timestamp (UTC)',
       'Transaction ID',
-      'Reference ID',
       'Description',
       'Leg Type',
       'Amount',
@@ -94,7 +88,6 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
     const rows = statement.entries.map((e) => [
       new Date(e.postedAtUtc).toISOString(),
       `"${e.transactionId}"`,
-      `"${e.referenceId}"`,
       `"${e.description.replace(/"/g, '""')}"`,
       e.entryType === debitMeta.id ? 'DEBIT' : 'CREDIT',
       e.amount.toFixed(2),
@@ -126,7 +119,6 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
 
   return (
     <div className="space-y-6">
-      {/* Account Selector & Date Range Filter Card */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
         <div className="flex justify-between items-start mb-4">
           <div>
@@ -204,10 +196,8 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
         </div>
       </div>
 
-      {/* Statement Results */}
       {statement && (
         <div className="space-y-6">
-          {/* 4 Financial KPI Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
               <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
@@ -220,7 +210,6 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
                 })}{' '}
                 <span className="text-xs font-normal text-slate-500">{statement.currency}</span>
               </p>
-              <span className="text-[10px] text-slate-400">Prior to window start</span>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
@@ -233,7 +222,6 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
                   maximumFractionDigits: 2,
                 })}
               </p>
-              <span className="text-[10px] text-slate-400">Period debit turnover</span>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
@@ -246,7 +234,6 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
                   maximumFractionDigits: 2,
                 })}
               </p>
-              <span className="text-[10px] text-slate-400">Period credit turnover</span>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
@@ -260,22 +247,15 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
                 })}{' '}
                 <span className="text-xs font-normal text-indigo-600">{statement.currency}</span>
               </p>
-              <span className="text-[10px] text-slate-400">
-                {currentAccType ? `${currentAccType.normalBalance}-Normal` : ''}
-              </span>
             </div>
           </div>
 
-          {/* Chronological Movements Table */}
           <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
                   Audit Trail: {statement.accountNumber} ({statement.accountName})
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Chronological split movements with post-transaction running balances
-                </p>
               </div>
               <span className="text-xs font-mono text-slate-500">
                 {statement.entries.length} {statement.entries.length === 1 ? 'record' : 'records'}
@@ -292,7 +272,7 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
                   <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
                     <tr>
                       <th className="px-6 py-3">Timestamp (UTC)</th>
-                      <th className="px-6 py-3">Reference ID</th>
+                      <th className="px-6 py-3">Transaction ID</th>
                       <th className="px-6 py-3">Description</th>
                       <th className="px-6 py-3">Leg Type</th>
                       <th className="px-6 py-3 text-right">Amount</th>
@@ -309,11 +289,12 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
                           </td>
                           <td className="px-6 py-3.5">
                             <button
-                              onClick={() => setInspectedTxId(entry.transactionId)}
+                              type="button"
+                              onClick={() => setInspectedTransactionId(entry.transactionId)}
                               className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
                               title="Inspect full transaction"
                             >
-                              <span>{entry.referenceId}</span>
+                              <span>{entry.transactionId}</span>
                               <span className="text-[10px] text-slate-400">↗</span>
                             </button>
                           </td>
@@ -352,11 +333,10 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
         </div>
       )}
 
-      {/* Immutable Audit Detail Modal */}
       <TransactionDetailModal
-        transactionId={inspectedTxId}
+        identifier={inspectedTransactionId}
         entryTypes={entryTypes}
-        onClose={() => setInspectedTxId(null)}
+        onClose={() => setInspectedTransactionId(null)}
       />
     </div>
   );

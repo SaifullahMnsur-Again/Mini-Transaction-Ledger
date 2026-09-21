@@ -9,9 +9,6 @@ interface TransactionViewProps {
 }
 
 export const TransactionView: React.FC<TransactionViewProps> = ({ accounts, onTransactionPosted }) => {
-  const generateReference = () => `TX-${Date.now().toString().slice(-6)}`;
-
-  const [referenceId, setReferenceId] = useState(generateReference());
   const [description, setDescription] = useState('');
   const [debitAccountId, setDebitAccountId] = useState(accounts[0]?.id || '');
   const [creditAccountId, setCreditAccountId] = useState(accounts[1]?.id || '');
@@ -45,7 +42,6 @@ export const TransactionView: React.FC<TransactionViewProps> = ({ accounts, onTr
     }
 
     const payload: CreateTransactionRequest = {
-      referenceId: referenceId.trim(),
       description: description.trim() || 'General Ledger Transfer',
       splits: [
         {
@@ -65,7 +61,6 @@ export const TransactionView: React.FC<TransactionViewProps> = ({ accounts, onTr
     try {
       const response = await postTransaction(payload);
       setSuccessResult(response);
-      setReferenceId(generateReference());
       setDescription('');
       setAmount('');
       await onTransactionPosted();
@@ -79,20 +74,11 @@ export const TransactionView: React.FC<TransactionViewProps> = ({ accounts, onTr
   return (
     <div className="space-y-6">
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900">Post Double-Entry Journal Entry</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Atomic transaction execution: ensures Sum(Debits) == Sum(Credits) across accounts.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setReferenceId(generateReference())}
-            className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer"
-          >
-            Regenerate Ref ID
-          </button>
+        <div className="mb-4">
+          <h2 className="text-sm font-bold text-slate-900">Post Double-Entry Journal Entry</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Atomic transaction execution: ensures Sum(Debits) == Sum(Credits). Unique transaction ID is issued by the ledger engine upon commit.
+          </p>
         </div>
 
         {error && (
@@ -102,29 +88,15 @@ export const TransactionView: React.FC<TransactionViewProps> = ({ accounts, onTr
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Reference ID (Unique)</label>
-              <input
-                type="text"
-                required
-                value={referenceId}
-                onChange={(e) => setReferenceId(e.target.value)}
-                placeholder="e.g. TX-1002"
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono bg-slate-50/50 focus:bg-white"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Description / Memo</label>
-              <input
-                type="text"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="e.g. Cash Investment / Office Supplies Purchase"
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/50 focus:bg-white"
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Description / Memo</label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Cash Investment / Office Supplies Purchase"
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/50 focus:bg-white"
+            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center bg-slate-50/80 p-4 rounded-xl border border-slate-200/80">
@@ -223,13 +195,12 @@ export const TransactionView: React.FC<TransactionViewProps> = ({ accounts, onTr
         <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-6 shadow-xs space-y-3">
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-bold text-emerald-900">Transaction Committed Successfully</h3>
-            <span className="font-mono text-xs font-semibold text-emerald-800">
-              Ref: {successResult.referenceId}
+            <span className="font-mono text-xs font-bold text-emerald-900 bg-emerald-100 border border-emerald-300 px-2.5 py-1 rounded-md">
+              {successResult.transactionId}
             </span>
           </div>
           <p className="text-xs text-emerald-700">
-            Journal Entry ID: <code className="font-mono">{successResult.id}</code> — Posted at{' '}
-            {new Date(successResult.postedAtUtc).toLocaleString()}
+            {successResult.description} • Posted at {new Date(successResult.postedAtUtc).toLocaleTimeString()}
           </p>
 
           <div className="overflow-x-auto bg-white rounded-lg border border-emerald-100 mt-2">
