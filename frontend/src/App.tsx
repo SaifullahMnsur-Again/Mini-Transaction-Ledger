@@ -4,6 +4,7 @@ import type { TabType } from './components/Header';
 import { AccountsView } from './components/AccountsView';
 import { TransactionView } from './components/TransactionView';
 import { TransactionsLogView } from './components/TransactionsLogView';
+import { StatementView } from './components/StatementView';
 import { fetchAccounts, createAccount } from './services/api';
 import type { Account, CreateAccountRequest } from './types/ledger';
 
@@ -59,10 +60,7 @@ export default function App() {
         )}
 
         {activeTab === 'statement' && (
-          <div className="bg-white p-12 rounded-xl border border-slate-200 text-center text-slate-500 shadow-xs">
-            <h3 className="text-base font-bold text-slate-800 mb-1">Account Statement</h3>
-            <p className="text-xs text-slate-500">Up next after testing the journal log book</p>
-          </div>
+          <StatementView accounts={accounts} />
         )}
       </main>
     </div>
