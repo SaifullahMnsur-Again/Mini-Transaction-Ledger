@@ -10,10 +10,11 @@ import { TransactionDetailModal } from './TransactionDetailModal';
 
 interface StatementViewProps {
   accounts: Account[];
+  initialAccountId?: string;    
 }
 
-export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(accounts[0]?.id || '');
+export const StatementView: React.FC<StatementViewProps> = ({ accounts, initialAccountId }) => {
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(initialAccountId || accounts[0]?.id || '');
   const [selectedAccountLive, setSelectedAccountLive] = useState<Account | null>(null);
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
@@ -23,6 +24,12 @@ export const StatementView: React.FC<StatementViewProps> = ({ accounts }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inspectedTransactionId, setInspectedTransactionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialAccountId) {
+      setSelectedAccountId(initialAccountId);
+    }
+  }, [initialAccountId]);
 
   useEffect(() => {
     Promise.all([fetchEntryTypesMetadata(), fetchAccountTypesMetadata()])

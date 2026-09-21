@@ -12,6 +12,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('accounts');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedStatementAccountId, setSelectedStatementAccountId] = useState<string>('');
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -34,6 +35,11 @@ export default function App() {
     await loadAccounts();
   };
 
+  const handleViewStatement = (accountId: string) => {
+    setSelectedStatementAccountId(accountId);
+    setActiveTab('statement');
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -45,6 +51,7 @@ export default function App() {
             loading={loading}
             onRefresh={loadAccounts}
             onCreateAccount={handleCreateAccount}
+            onViewStatement={handleViewStatement}
           />
         )}
 
@@ -60,7 +67,10 @@ export default function App() {
         )}
 
         {activeTab === 'statement' && (
-          <StatementView accounts={accounts} />
+          <StatementView
+            accounts={accounts}
+            initialAccountId={selectedStatementAccountId}
+          />
         )}
       </main>
     </div>
