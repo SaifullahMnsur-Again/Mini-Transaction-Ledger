@@ -8,9 +8,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-ledger_db}
     ports:
-      - "5432:5432" # Maps host 5433 to container 5432 if your host port 5432 was already occupied
+      - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ledger_db}"]
       interval: 5s
@@ -34,7 +34,6 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Docker
       - DOTNET_RUNNING_IN_CONTAINER=true
-      # Connect via service name 'postgres-db' on container port 5432
       - ConnectionStrings__DefaultConnection=Host=postgres-db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
     ports:
       - "8000:8080"
@@ -45,7 +44,7 @@ services:
       - ledger-net
 
 volumes:
-  pgdata:
+  postgres_data:
 
 networks:
   ledger-net:
