@@ -6,6 +6,7 @@
 ## --- Database Storage ---
 pgdata/
 postgres-data/
+postgres_data/
 
 ## --- .NET Build Outputs & Artifacts ---
 **/[Bb]in/
@@ -27,7 +28,7 @@ postgres-data/
 Thumbs.db
 crash.dmp
 
-## --- Frontend (reserved for upcoming phase) ---
+## --- Frontend ---
 **/node_modules/
 **/dist/
 **/build/
