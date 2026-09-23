@@ -1,25 +1,25 @@
-# Stage 1: Build React/Vite assets
-FROM node:20-alpine AS build
+# ==========================================
+# STAGE 1: Build (Node SDK + npm Cache Mount)
+# ==========================================
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
 
-COPY . ./
-ARG VITE_API_BASE_URL=/api/v1
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+# Cache mount: Persists npm download cache on host, completely bypassing image layers
+RUN --mount=type=cache,id=npm,target=/root/.npm \
+    npm ci
+
+COPY . .
 RUN npm run build
 
-# Stage 2: Minimal Runtime
-FROM node:20-alpine AS runtime
-WORKDIR /app
+# ==========================================
+# STAGE 2: Production Web Server (Minimal Nginx)
+# ==========================================
+FROM nginx:alpine-slim AS final
+EXPOSE 80
 
-ENV NODE_ENV=production
+# Copy ONLY compiled static bundle (HTML/JS/CSS)
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy compiled assets and lightweight server script
-COPY --from=build /app/dist ./dist
-COPY server.cjs ./
-
-EXPOSE 3000
-
-CMD ["node", "server.cjs"]
+CMD ["nginx", "-g", "daemon off;"]
