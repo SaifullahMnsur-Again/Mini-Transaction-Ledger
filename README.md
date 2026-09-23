@@ -22,6 +22,34 @@ The system enforces atomic ledger posting, strict mathematical equilibrium ($\su
 
 ---
 
+---
+
+## Repository Structure
+
+```text
+MiniTransactionLedger/
+├── backend/                  # .NET 10 Web API Core & Ledger Engine
+│   ├── Controllers/          # REST API Endpoints (Accounts, Transactions)
+│   ├── Data/                 # EF Core DbContext
+│   ├── DTOs/                 # Request & Response Data Transfer Objects
+│   ├── Enums/                # Account Types & Entry Types Metadata
+│   ├── Migrations/           # EF Core Database Code-First Migrations
+│   ├── Models/               # Domain Models (Account, Transaction, Split)
+│   ├── Services/             # Ledger Engine Core & Invariant Validation
+│   ├── Dockerfile            # Multi-stage .NET 10 build with NuGet caching
+│   └── Backend.csproj
+├── frontend/                 # React 18 + Vite + TypeScript Client
+│   ├── src/                  # UI Components, Hooks & API Client
+│   ├── public/               # Static Web Assets
+│   ├── Dockerfile            # Multi-stage Node build with npm caching
+│   ├── server.cjs            # Static Asset Production Server
+│   └── package.json
+├── docker-compose.yml        # Multi-container service orchestration
+├── EXPLANATION.md            # Written architecture & internal workflow explanation
+└── README.md
+
+```
+
 ## System Architecture
 
 ```mermaid
@@ -306,3 +334,15 @@ npm run dev
 
 4. Verify the new transaction displays under the **General Ledger Journal Log** below. Click **Inspect ↗** to open the audit modal.
 5. Switch to the **Account Statement** tab, select `1010-CASH`, and review the chronological audit trail, KPI cards, and CSV export.
+
+
+---
+
+## Docker Setup & Containerization Breakdown
+
+The application uses multi-stage builds and isolated networking for zero-dependency execution:
+
+* **PostgreSQL (`ledger-db`):** Uses the official `postgres:16-alpine` image. Includes a `pg_isready` health check so dependent services only launch when the database is ready to accept connections.
+* **Backend API (`ledger-backend`):** A multi-stage `.NET 10` Dockerfile. It uses BuildKit cache mounts (`--mount=type=cache,target=/root/.nuget/packages`) during `dotnet restore` to speed up rebuild times and outputs a minimal Alpine runtime image.
+* **Frontend SPA (`ledger-frontend`):** A multi-stage Node build that compiles the React application and serves static assets via a lightweight production server (`server.cjs`) with caching enabled.
+* **Network & Persistence:** All containers communicate over an isolated Docker bridge network (`ledger-net`). PostgreSQL data persists using a named volume (`postgres_data`).
