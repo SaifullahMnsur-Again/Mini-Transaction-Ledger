@@ -1,0 +1,44 @@
+name: Deploy MiniTransactionLedger to Azure VM
+
+on:
+  push:
+    branches: [ "devops-pipeline" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up SSH Key
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.AZURE_SSH_KEY }}
+
+    - name: Deploy to Azure VM via SSH
+      env:
+        VM_IP: ${{ secrets.AZURE_VM_IP }}
+        VM_USER: ${{ secrets.AZURE_VM_USERNAME }}
+        VM_PATH: ${{ secrets.VM_APP_PATH }}
+      run: |
+        # Disable strict host key checking for automated connection
+        mkdir -p ~/.ssh
+        ssh-keyscan -H "$VM_IP" >> ~/.ssh/known_hosts
+
+        # SSH into the Azure VM and execute deployment commands
+        ssh "$VM_USER@$VM_IP" << 'EOF'
+          cd /var/www/Mini-Transaction-Ledger
+
+          # Pull the latest changes from the devops-pipeline branch
+          git fetch origin devops-pipeline
+          git reset --hard origin/devops-pipeline
+
+          # Bring down old containers and rebuild/start the new stack using Docker Compose
+          docker compose down
+          docker compose up -d --build --remove-orphans
+
+          # Clean up unused Docker images to save disk space
+          docker image prune -f
+        EOF
