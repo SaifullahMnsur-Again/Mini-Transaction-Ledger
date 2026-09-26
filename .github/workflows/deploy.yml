@@ -22,6 +22,7 @@ name: Deploy to Azure VM
 # Docker Registry: GitHub Container Registry (GHCR)
 # ================================================================
 
+
 on:
   push:
     branches:
