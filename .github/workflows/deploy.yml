@@ -560,6 +560,32 @@ jobs:
 
           DEPLOY_SCRIPT
 
+      
+            # ---------------------------------------------------
+      # AUTOMATED AZURE VM DEPLOYMENT INTERACTION
+      # ---------------------------------------------------
+      - name: Execute Remote Deployment Scripts via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: 98.70.50.244
+          username: azureuser
+          key: ${{ secrets.AZURE_SSH_PRIVATE_KEY }}
+          port: 22
+          script_stop_on_error: true
+          # 🟢 THIS IS THE MANDATORY BASH SCRIPT SEQUENCE TO UPDATE:
+          script: |
+            cd /var/www/Mini-Transaction-Ledger
+            
+            # Log into GitHub Container Registry securely on the VM
+            echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # 1. Fetch the absolute newest lowercase production microservice images
+            sudo docker compose pull
+            
+            # 2. Force Docker to swap the old container runtimes with the new ones instantly
+            sudo docker compose up -d --force-recreate --remove-orphans
+
+
       # ---------------------------------------------------
       # PUBLIC HTTPS VERIFICATION
       # ---------------------------------------------------
