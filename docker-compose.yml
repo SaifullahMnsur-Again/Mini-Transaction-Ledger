@@ -1,4 +1,48 @@
+version: '3.9'
+
 services:
+  # ==========================================
+  # NGINX REVERSE PROXY
+  # ==========================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ledger-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/letsencrypt:ro
+      - ./certbot-www:/var/www/certbot:ro
+      - nginx_cache:/var/cache/nginx
+    networks:
+      - ledger-net
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 64M
+        reservations:
+          cpus: '0.1'
+          memory: 32M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ==========================================
+  # POSTGRESQL DATABASE (Optimized for 1GB RAM)
+  # ==========================================
   postgres-db:
     image: postgres:16-alpine
     container_name: ledger-db
@@ -7,57 +51,163 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-ledger_db}
+      # Memory and performance tuning for 1GB VM
+      POSTGRES_INITDB_ARGS: >
+        --encoding=UTF8
+        --shared_buffers=64MB
+        --effective_cache_size=128MB
+        --maintenance_work_mem=16MB
+        --work_mem=4MB
+        --wal_buffers=1MB
+        --max_wal_size=128MB
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"  # Only accessible from localhost
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ledger_db}"]
-      interval: 3s
-      timeout: 3s
-      retries: 5
+      - ./backups:/backups:rw
     networks:
       - ledger-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ledger_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
+  # ==========================================
+  # .NET BACKEND API
+  # ==========================================
   backend:
     build:
-      context: ./backend
+      context: ./Backend
       dockerfile: Dockerfile
-      network: host
+    image: ledger-backend:latest
     container_name: ledger-backend
     restart: unless-stopped
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
-      - ASPNETCORE_ENVIRONMENT=Docker
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - DOTNET_RUNNING_IN_CONTAINER=true
       - ConnectionStrings__DefaultConnection=Host=postgres-db;Port=5432;Database=${POSTGRES_DB:-ledger_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
-    ports:
-      - "8000:8080"
+      - ASPNETCORE_URLS=http://+:8080
+      # Memory optimization for .NET
+      - DOTNET_TieredCompilation=1
+      - DOTNET_TieredCompilationQuickJit=1
+      - DOTNET_TieredCompilationQuickJitForLoops=1
+      - DOTNET_GCServer=0  # Disabled for low memory
+      - DOTNET_GCRetainVM=0
+    expose:
+      - "8080"
+    networks:
+      - ledger-net
     depends_on:
       postgres-db:
         condition: service_healthy
-    networks:
-      - ledger-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.7'
+          memory: 384M
+        reservations:
+          cpus: '0.3'
+          memory: 192M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
+  # ==========================================
+  # REACT FRONTEND
+  # ==========================================
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      network: host
+    image: ledger-frontend:latest
     container_name: ledger-frontend
     restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_started
-    ports:
-      - "3000:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - REACT_APP_API_URL=https://${DOMAIN:-localhost}/api
+    expose:
+      - "3000"
     networks:
       - ledger-net
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ==========================================
+  # CERTBOT FOR SSL RENEWAL
+  # ==========================================
+  certbot:
+    image: certbot/certbot:latest
+    container_name: ledger-certbot
+    restart: unless-stopped
+    volumes:
+      - ./ssl:/etc/letsencrypt:rw
+      - ./certbot-www:/var/www/certbot:rw
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;'"
+    networks:
+      - ledger-net
+    depends_on:
+      - nginx
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "2m"
+        max-file: "1"
 
 volumes:
   postgres_data:
+    driver: local
+  nginx_cache:
     driver: local
 
 networks:
