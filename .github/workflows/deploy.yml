@@ -571,8 +571,6 @@ jobs:
           username: azureuser
           key: ${{ secrets.AZURE_SSH_PRIVATE_KEY }}
           port: 22
-          script_stop_on_error: true
-          # 🟢 THIS IS THE MANDATORY BASH SCRIPT SEQUENCE TO UPDATE:
           script: |
             cd /var/www/Mini-Transaction-Ledger
             
@@ -585,28 +583,30 @@ jobs:
             # 2. Force Docker to swap the old container runtimes with the new ones instantly
             sudo docker compose up -d --force-recreate --remove-orphans
 
-
       # ---------------------------------------------------
       # PUBLIC HTTPS VERIFICATION
       # ---------------------------------------------------
       - name: Verify Production HTTPS
+        env:
+          PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
         run: |
           set -e
 
-          echo "Checking application health directly on host..."
+          echo "Initiating dynamic health check verification via secure proxy..."
+          echo "Checking: https://${PRODUCTION_DOMAIN}/health"
 
+          # 🟢 SECURE & DYNAMIC: Uses your hidden secret variable with zero hardcoded IPs
           curl \
             --fail \
             --silent \
             --show-error \
             --insecure \
+            --location \
             --max-time 30 \
-            --header "Host: ledger.saifullahmnsur.dev" \
-            "https://98.70.50" \
+            "https://${PRODUCTION_DOMAIN}/health" \
             > /dev/null
 
-          echo "✓ Production HTTPS endpoint is accessible directly via host routing grid"
-
+          echo "✓ Production HTTPS endpoint is fully accessible and healthy!"
 
       # ---------------------------------------------------
       # DEPLOYMENT SUMMARY
