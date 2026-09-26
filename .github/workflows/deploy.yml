@@ -39,12 +39,10 @@ env:
   IMAGE_NAME_BACKEND: ${{ github.repository }}/backend
   IMAGE_NAME_FRONTEND: ${{ github.repository }}/frontend
 
-# ================================================================
-# JOB 1: BUILD BACKEND
-# ================================================================
-
+# ---------------------------------------------------------
+# BUILD BACKEND
+# ---------------------------------------------------------
 jobs:
-
   build-backend:
     name: Build Backend Image
     runs-on: ubuntu-latest
@@ -54,56 +52,35 @@ jobs:
       packages: write
 
     steps:
-
-      # ------------------------------------------------------------
-      # Checkout
-      # ------------------------------------------------------------
-
       - name: Checkout devops-pipeline
         uses: actions/checkout@v4
         with:
           ref: devops-pipeline
-          fetch-depth: 0
-
-      # ------------------------------------------------------------
-      # Docker Buildx
-      # ------------------------------------------------------------
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ------------------------------------------------------------
-      # Login to GHCR
-      # ------------------------------------------------------------
-
-      - name: Login to GitHub Container Registry
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------------------------------------
-      # Build and Push
-      # ------------------------------------------------------------
-
-      - name: Build and Push Backend Image
+      - name: Build and push backend
         uses: docker/build-push-action@v6
         with:
           context: ./Backend
           push: true
-
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
-
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-# ================================================================
-# JOB 2: BUILD FRONTEND
-# ================================================================
-
+# ---------------------------------------------------------
+# BUILD FRONTEND
+# ---------------------------------------------------------
   build-frontend:
     name: Build Frontend Image
     runs-on: ubuntu-latest
@@ -113,56 +90,35 @@ jobs:
       packages: write
 
     steps:
-
-      # ------------------------------------------------------------
-      # Checkout
-      # ------------------------------------------------------------
-
       - name: Checkout devops-pipeline
         uses: actions/checkout@v4
         with:
           ref: devops-pipeline
-          fetch-depth: 0
-
-      # ------------------------------------------------------------
-      # Docker Buildx
-      # ------------------------------------------------------------
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ------------------------------------------------------------
-      # Login to GHCR
-      # ------------------------------------------------------------
-
-      - name: Login to GitHub Container Registry
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------------------------------------
-      # Build and Push
-      # ------------------------------------------------------------
-
-      - name: Build and Push Frontend Image
+      - name: Build and push frontend
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
           push: true
-
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
-
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-# ================================================================
-# JOB 3: SECURITY SCAN
-# ================================================================
-
+# ---------------------------------------------------------
+# SECURITY SCAN
+# ---------------------------------------------------------
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -173,27 +129,18 @@ jobs:
 
     permissions:
       contents: read
-      packages: read
       security-events: write
+      packages: read
 
     steps:
-
-      # ------------------------------------------------------------
-      # Login to GHCR
-      # ------------------------------------------------------------
-
-      - name: Login to GitHub Container Registry
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------------------------------------
-      # Scan Backend
-      # ------------------------------------------------------------
-
-      - name: Scan Backend Image
+      - name: Scan backend image
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
@@ -202,11 +149,12 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-      # ------------------------------------------------------------
-      # Scan Frontend
-      # ------------------------------------------------------------
+      - name: Upload backend scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-backend.sarif
 
-      - name: Scan Frontend Image
+      - name: Scan frontend image
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
@@ -215,99 +163,96 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-      # ------------------------------------------------------------
-      # Upload Backend Scan
-      # ------------------------------------------------------------
-
-      - name: Upload Backend Trivy Results
+      - name: Upload frontend scan results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: trivy-backend.sarif
-          category: trivy-backend
-
-      # ------------------------------------------------------------
-      # Upload Frontend Scan
-      # ------------------------------------------------------------
-
-      - name: Upload Frontend Trivy Results
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
           sarif_file: trivy-frontend.sarif
-          category: trivy-frontend
 
-# ================================================================
-# JOB 4: DEPLOY TO AZURE VM
-# ================================================================
-
+# ---------------------------------------------------------
+# DEPLOY TO AZURE VM
+# ---------------------------------------------------------
   deploy:
     name: Deploy to Azure VM
+
+    runs-on: ubuntu-latest
 
     needs:
       - build-backend
       - build-frontend
       - security-scan
 
-    runs-on: ubuntu-latest
-
-    # Deploy only when running against devops-pipeline.
-    # Works for both push and workflow_dispatch.
-    if: github.ref == 'refs/heads/devops-pipeline'
-
-    environment:
-      name: production
-      url: https://${{ secrets.PRODUCTION_DOMAIN }}
+    # Only deploy automatically for pushes to devops-pipeline.
+    # Manual workflow_dispatch deployments are also allowed.
+    if: |
+      github.ref == 'refs/heads/devops-pipeline'
 
     permissions:
       contents: read
+      packages: read
+
+    environment:
+      name: production
 
     steps:
-
-      # ------------------------------------------------------------
-      # Checkout
-      # ------------------------------------------------------------
-
+      # ---------------------------------------------------
+      # CHECKOUT
+      # ---------------------------------------------------
       - name: Checkout devops-pipeline
         uses: actions/checkout@v4
         with:
           ref: devops-pipeline
-          fetch-depth: 1
 
-      # ------------------------------------------------------------
-      # Configure SSH
-      # ------------------------------------------------------------
-
-      - name: Configure SSH
+      # ---------------------------------------------------
+      # INSTALL SSH KEY
+      # ---------------------------------------------------
+      - name: Install SSH key
+        env:
+          AZURE_SSH_PRIVATE_KEY: ${{ secrets.AZURE_SSH_PRIVATE_KEY }}
         run: |
           set -e
 
           mkdir -p ~/.ssh
 
-          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$AZURE_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+
           chmod 600 ~/.ssh/deploy_key
 
-          ssh-keyscan -H "${{ secrets.AZURE_VM_IP }}" \
-            >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null
 
-      # ------------------------------------------------------------
-      # Deploy
-      # ------------------------------------------------------------
+      # ---------------------------------------------------
+      # ADD AZURE VM TO KNOWN HOSTS
+      # ---------------------------------------------------
+      - name: Add Azure VM to known_hosts
+        env:
+          VM_IP: ${{ secrets.AZURE_VM_IP }}
+        run: |
+          set -e
 
+          ssh-keyscan -H "$VM_IP" >> ~/.ssh/known_hosts
+
+      # ---------------------------------------------------
+      # DEPLOY
+      # ---------------------------------------------------
       - name: Deploy to Azure VM
         env:
           VM_APP_PATH: ${{ secrets.VM_APP_PATH }}
           VM_USERNAME: ${{ secrets.AZURE_VM_USERNAME }}
           VM_IP: ${{ secrets.AZURE_VM_IP }}
+          PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
+
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
           BACKEND_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}
           FRONTEND_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}
+
           IMAGE_TAG: ${{ github.sha }}
+
         run: |
           set -e
 
-          ssh -i ~/.ssh/deploy_key \
+          ssh \
+            -i ~/.ssh/deploy_key \
             "${VM_USERNAME}@${VM_IP}" \
             "VM_APP_PATH='${VM_APP_PATH}' \
              GHCR_USERNAME='${GHCR_USERNAME}' \
@@ -315,93 +260,96 @@ jobs:
              BACKEND_IMAGE='${BACKEND_IMAGE}' \
              FRONTEND_IMAGE='${FRONTEND_IMAGE}' \
              IMAGE_TAG='${IMAGE_TAG}' \
+             PRODUCTION_DOMAIN='${PRODUCTION_DOMAIN}' \
              bash -s" << 'DEPLOY_SCRIPT'
 
           set -e
-
-          echo "================================================"
-          echo "Starting deployment"
-          echo "================================================"
 
           APP_PATH="${VM_APP_PATH}"
           BRANCH="devops-pipeline"
           COMPOSE_FILE="docker-compose.yml"
 
+          echo "========================================"
+          echo "Starting deployment"
+          echo "========================================"
+
+          echo "Application path: ${APP_PATH}"
+          echo "Branch: ${BRANCH}"
+          echo "Image tag: ${IMAGE_TAG}"
+
           cd "$APP_PATH"
 
-          echo "Application directory: $APP_PATH"
-          echo "Branch: $BRANCH"
-          echo "Compose file: $COMPOSE_FILE"
-          echo "Image tag: $IMAGE_TAG"
-
-          # --------------------------------------------------------
-          # Verify repository
-          # --------------------------------------------------------
-
-          if [ ! -d .git ]; then
-            echo "ERROR: Git repository not found."
+          # ------------------------------------------------
+          # VERIFY GIT REPOSITORY
+          # ------------------------------------------------
+          if [ ! -d ".git" ]; then
+            echo "ERROR: ${APP_PATH} is not a Git repository."
             exit 1
           fi
 
-          # --------------------------------------------------------
-          # Fetch ONLY devops-pipeline
-          # --------------------------------------------------------
+          # ------------------------------------------------
+          # UPDATE ONLY devops-pipeline
+          # ------------------------------------------------
+          echo "Fetching ${BRANCH}..."
 
-          echo "Fetching devops-pipeline..."
+          git fetch origin "${BRANCH}"
 
-          git fetch origin devops-pipeline
+          echo "Resetting working tree to origin/${BRANCH}..."
 
-          echo "Resetting working tree to origin/devops-pipeline..."
+          git reset --hard "origin/${BRANCH}"
 
-          git reset --hard origin/devops-pipeline
-
-          # --------------------------------------------------------
-          # Remove stale untracked files while preserving runtime
-          # data.
+          # ------------------------------------------------
+          # CLEAN ONLY UNTRACKED FILES
           #
           # IMPORTANT:
-          #   ssl/          -> Let's Encrypt certificates
-          #   certbot-www/  -> ACME challenge files
-          #   .env          -> VM environment configuration
-          # --------------------------------------------------------
-
-          echo "Cleaning stale Git files..."
+          # Keep runtime SSL certificates,
+          # Certbot webroot and environment file.
+          # ------------------------------------------------
+          echo "Cleaning untracked deployment files..."
 
           git clean -fd \
             -e ssl/ \
             -e certbot-www/ \
             -e .env
 
-          # --------------------------------------------------------
-          # Verify runtime data still exists
-          # --------------------------------------------------------
-
-          echo "Checking SSL directory..."
-
-          if [ ! -d ssl ]; then
-            echo "ERROR: ssl/ directory is missing."
-            echo "Deployment stopped to prevent HTTPS configuration loss."
+          # ------------------------------------------------
+          # VERIFY REQUIRED FILES
+          # ------------------------------------------------
+          if [ ! -f "$COMPOSE_FILE" ]; then
+            echo "ERROR: ${COMPOSE_FILE} not found."
             exit 1
           fi
 
-          echo "Checking Certbot webroot..."
+          if [ ! -d "ssl" ]; then
+            echo "ERROR: ssl/ directory is missing."
+            exit 1
+          fi
 
           mkdir -p certbot-www
 
-          # --------------------------------------------------------
-          # Login to GHCR
-          # --------------------------------------------------------
+          # ------------------------------------------------
+          # SHOW CURRENT COMMIT
+          # ------------------------------------------------
+          echo "Current deployed commit:"
 
-          echo "Logging into GitHub Container Registry..."
+          git rev-parse HEAD
+
+          echo "Expected commit:"
+
+          echo "${IMAGE_TAG}"
+
+          # ------------------------------------------------
+          # LOGIN TO GHCR
+          # ------------------------------------------------
+          echo "Logging in to GHCR..."
 
           echo "$GHCR_TOKEN" | docker login ghcr.io \
             -u "$GHCR_USERNAME" \
             --password-stdin
 
-          # --------------------------------------------------------
-          # Pull the exact images built by this GitHub Actions run.
-          # --------------------------------------------------------
-
+          # ------------------------------------------------
+          # PULL EXACT IMAGE VERSION
+          # ------------------------------------------------
           echo "Pulling backend image..."
 
           docker pull "${BACKEND_IMAGE}:${IMAGE_TAG}"
@@ -410,29 +358,36 @@ jobs:
 
           docker pull "${FRONTEND_IMAGE}:${IMAGE_TAG}"
 
-          # --------------------------------------------------------
-          # Verify images exist
-          # --------------------------------------------------------
+          # ------------------------------------------------
+          # VERIFY IMAGES
+          # ------------------------------------------------
+          docker image inspect "${BACKEND_IMAGE}:${IMAGE_TAG}" > /dev/null
 
-          echo "Verifying images..."
+          docker image inspect "${FRONTEND_IMAGE}:${IMAGE_TAG}" > /dev/null
 
-          docker image inspect \
-            "${BACKEND_IMAGE}:${IMAGE_TAG}" > /dev/null
+          echo "Docker images successfully pulled."
 
-          docker image inspect \
-            "${FRONTEND_IMAGE}:${IMAGE_TAG}" > /dev/null
+          # ------------------------------------------------
+          # VALIDATE COMPOSE CONFIGURATION
+          # ------------------------------------------------
+          echo "Validating Docker Compose configuration..."
 
-          # --------------------------------------------------------
-          # Deploy
+          IMAGE_TAG="$IMAGE_TAG" \
+            docker compose \
+            -f "$COMPOSE_FILE" \
+            config -q
+
+          # ------------------------------------------------
+          # DEPLOY
           #
           # IMPORTANT:
-          # No docker compose down.
-          # No --build.
-          # PostgreSQL volume remains untouched.
-          # SSL/Certbot data remains untouched.
-          # --------------------------------------------------------
-
-          echo "Starting application with Docker Compose..."
+          # Do NOT run docker compose down.
+          #
+          # PostgreSQL named volume remains intact.
+          # Existing containers are recreated only when
+          # necessary.
+          # ------------------------------------------------
+          echo "Deploying containers..."
 
           IMAGE_TAG="$IMAGE_TAG" \
             docker compose \
@@ -441,108 +396,102 @@ jobs:
             --no-build \
             --remove-orphans
 
-          # --------------------------------------------------------
-          # Show container status
-          # --------------------------------------------------------
-
+          # ------------------------------------------------
+          # SHOW CONTAINER STATUS
+          # ------------------------------------------------
           echo "Container status:"
 
           docker compose \
             -f "$COMPOSE_FILE" \
             ps
 
-          # --------------------------------------------------------
-          # Wait for containers
-          # --------------------------------------------------------
-
-          echo "Waiting for services..."
+          # ------------------------------------------------
+          # WAIT FOR SERVICES
+          # ------------------------------------------------
+          echo "Waiting for services to become healthy..."
 
           sleep 10
-
-          # --------------------------------------------------------
-          # Health checks
-          # --------------------------------------------------------
-
-          echo "Running health checks..."
 
           HEALTH_CHECK_PASSED=0
 
           for i in $(seq 1 30); do
 
-            echo "Health check attempt $i/30..."
-
             BACKEND_OK=0
             FRONTEND_OK=0
             DATABASE_OK=0
 
-            # Backend
+            # ----------------------------------------------
+            # BACKEND HEALTH
+            # ----------------------------------------------
             if docker compose \
               -f "$COMPOSE_FILE" \
               exec -T backend \
-              curl -fsS http://localhost:8080/health \
+              curl -fsS \
+              http://localhost:8080/health \
               > /dev/null 2>&1; then
 
               BACKEND_OK=1
-
             fi
 
-            # Frontend
+            # ----------------------------------------------
+            # FRONTEND HEALTH
+            # ----------------------------------------------
             if docker compose \
               -f "$COMPOSE_FILE" \
               exec -T frontend \
-              wget --spider -q http://localhost:3000 \
+              wget --spider -q \
+              http://localhost:3000 \
               > /dev/null 2>&1; then
 
               FRONTEND_OK=1
-
             fi
 
-            # PostgreSQL
+            # ----------------------------------------------
+            # POSTGRES HEALTH
+            # ----------------------------------------------
             if docker compose \
               -f "$COMPOSE_FILE" \
               exec -T postgres-db \
-              pg_isready -U postgres \
+              pg_isready \
+              -U postgres \
               > /dev/null 2>&1; then
 
               DATABASE_OK=1
-
             fi
+
+            echo "Health check ${i}/30:"
+            echo "  Backend:   ${BACKEND_OK}"
+            echo "  Frontend:  ${FRONTEND_OK}"
+            echo "  PostgreSQL:${DATABASE_OK}"
 
             if [ "$BACKEND_OK" -eq 1 ] && \
                [ "$FRONTEND_OK" -eq 1 ] && \
                [ "$DATABASE_OK" -eq 1 ]; then
 
-              echo "✓ Backend healthy"
-              echo "✓ Frontend healthy"
-              echo "✓ PostgreSQL healthy"
+              echo "========================================"
+              echo "All application services are healthy."
+              echo "========================================"
 
               HEALTH_CHECK_PASSED=1
               break
-
             fi
 
             sleep 2
 
           done
 
-          # --------------------------------------------------------
-          # Health check failure
-          # --------------------------------------------------------
-
+          # ------------------------------------------------
+          # FAIL DEPLOYMENT IF HEALTH CHECK FAILED
+          # ------------------------------------------------
           if [ "$HEALTH_CHECK_PASSED" -ne 1 ]; then
 
-            echo ""
-            echo "================================================"
-            echo "DEPLOYMENT HEALTH CHECK FAILED"
-            echo "================================================"
+            echo "ERROR: Application health checks failed."
 
-            echo ""
             echo "Container status:"
             docker compose \
               -f "$COMPOSE_FILE" \
               ps
 
-            echo ""
             echo "Container logs:"
             docker compose \
               -f "$COMPOSE_FILE" \
@@ -550,41 +499,40 @@ jobs:
               --tail=200
 
             exit 1
-
           fi
 
-          # --------------------------------------------------------
-          # Nginx configuration test
-          # --------------------------------------------------------
+          # ------------------------------------------------
+          # VALIDATE NGINX CONFIGURATION
+          # ------------------------------------------------
+          echo "Validating Nginx configuration..."
 
-          echo "Testing Nginx configuration..."
+          if ! docker exec ledger-nginx nginx -t; then
 
-          if docker exec ledger-nginx nginx -t; then
-            echo "✓ Nginx configuration is valid"
-          else
-            echo "ERROR: Nginx configuration test failed."
+            echo "ERROR: Nginx configuration validation failed."
+
             exit 1
           fi
 
-          # --------------------------------------------------------
-          # Final local HTTPS check from VM
-          # --------------------------------------------------------
+          echo "Nginx configuration is valid."
 
-          echo "Checking HTTPS from Azure VM..."
+          # ------------------------------------------------
+          # VERIFY HTTPS FROM VM
+          # ------------------------------------------------
+          echo "Checking production HTTPS endpoint..."
 
           if curl \
             --fail \
             --silent \
             --show-error \
             --max-time 15 \
-            "https://${{ secrets.PRODUCTION_DOMAIN }}/health" \
+            "https://${PRODUCTION_DOMAIN}/health" \
             > /dev/null; then
 
-            echo "✓ HTTPS health endpoint is responding"
+            echo "Production HTTPS health endpoint is responding."
 
           else
 
-            echo "ERROR: HTTPS health check failed."
+            echo "ERROR: Production HTTPS health check failed."
 
             docker compose \
               -f "$COMPOSE_FILE" \
@@ -594,70 +542,60 @@ jobs:
 
           fi
 
-          # --------------------------------------------------------
-          # Logout from GHCR
-          # --------------------------------------------------------
-
+          # ------------------------------------------------
+          # LOGOUT FROM GHCR
+          # ------------------------------------------------
           docker logout ghcr.io || true
 
-          echo ""
-          echo "================================================"
-          echo "✓ DEPLOYMENT COMPLETED SUCCESSFULLY"
-          echo "================================================"
-          echo "Branch: $BRANCH"
-          echo "Commit: $IMAGE_TAG"
-          echo "Backend: ${BACKEND_IMAGE}:${IMAGE_TAG}"
-          echo "Frontend: ${FRONTEND_IMAGE}:${IMAGE_TAG}"
-          echo "Domain: https://${{ secrets.PRODUCTION_DOMAIN }}"
-          echo "================================================"
+          echo "========================================"
+          echo "Deployment completed successfully."
+          echo "========================================"
 
           DEPLOY_SCRIPT
 
-      # ------------------------------------------------------------
-      # Public HTTPS verification
-      # ------------------------------------------------------------
-
+      # ---------------------------------------------------
+      # PUBLIC HTTPS VERIFICATION
+      # ---------------------------------------------------
       - name: Verify Production HTTPS
+        env:
+          PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
         run: |
           set -e
 
-          echo "Checking production HTTPS endpoint..."
+          echo "Checking:"
+          echo "https://${PRODUCTION_DOMAIN}/health"
 
           curl \
             --fail \
             --silent \
             --show-error \
             --max-time 30 \
-            "https://${{ secrets.PRODUCTION_DOMAIN }}/health" \
+            "https://${PRODUCTION_DOMAIN}/health" \
             > /dev/null
 
           echo "✓ Production HTTPS endpoint is accessible"
 
-      # ------------------------------------------------------------
-      # Deployment summary
-      # ------------------------------------------------------------
-
-      - name: Deployment Summary
-        if: success()
+      # ---------------------------------------------------
+      # DEPLOYMENT SUMMARY
+      # ---------------------------------------------------
+      - name: Deployment summary
+        env:
+          PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
         run: |
-          echo "================================================"
-          echo "DEPLOYMENT SUCCESSFUL"
-          echo "================================================"
-          echo "Branch: devops-pipeline"
-          echo "Commit: ${{ github.sha }}"
-          echo "Backend image:"
-          echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}"
-          echo "Frontend image:"
-          echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}"
-          echo "Production:"
-          echo "  https://${{ secrets.PRODUCTION_DOMAIN }}"
-          echo "================================================"
+          echo "========================================"
+          echo "Deployment Summary"
+          echo "========================================"
+          echo "Branch:    devops-pipeline"
+          echo "Commit:    ${{ github.sha }}"
+          echo "Domain:    https://${PRODUCTION_DOMAIN}"
+          echo "Backend:   ${REGISTRY}/${IMAGE_NAME_BACKEND}:${{ github.sha }}"
+          echo "Frontend:  ${REGISTRY}/${IMAGE_NAME_FRONTEND}:${{ github.sha }}"
+          echo "========================================"
 
-      # ------------------------------------------------------------
-      # SSH cleanup
-      # ------------------------------------------------------------
-
-      - name: Cleanup SSH Key
+      # ---------------------------------------------------
+      # CLEAN SSH KEY
+      # ---------------------------------------------------
+      - name: Cleanup SSH key
         if: always()
         run: |
           rm -f ~/.ssh/deploy_key
