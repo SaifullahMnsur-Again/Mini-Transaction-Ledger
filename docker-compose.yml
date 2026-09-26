@@ -92,7 +92,7 @@ services:
   # ==========================================
   backend:
     build:
-      context: ./Backend
+      context: ./backend
       dockerfile: Dockerfile
     image: ledger-backend:latest
     container_name: ledger-backend
