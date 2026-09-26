@@ -1,609 +1,406 @@
-```bash
-#!/usr/bin/env bash
+#!/bin/bash
 
-set -Eeuo pipefail
+# ================================================================
+# AZURE VM INITIAL SETUP SCRIPT
+# ================================================================
+# Purpose: Automate fresh Azure VM setup for Mini Transaction Ledger
+# Requirements: Fresh Ubuntu 22.04 LTS or 24.04 LTS
+# Run as: sudo bash setup-vm.sh
+# Time: ~10-15 minutes
+# ================================================================
 
-# ============================================================
-# Mini Transaction Ledger - Azure VM Setup
-# Repository : SaifullahMnsur-Again/Mini-Transaction-Ledger
-# Branch     : devops-pipeline
-# Compose    : docker-compose.yml ONLY
-# ============================================================
+set -e  # Exit on error
 
-APP_PATH="/var/www/Mini-Transaction-Ledger"
-
-REPO_URL="https://github.com/SaifullahMnsur-Again/Mini-Transaction-Ledger.git"
-BRANCH="devops-pipeline"
-COMPOSE_FILE="docker-compose.yml"
-
-DOMAIN="ledger.saifullahmnsur.dev"
-
-ENV_FILE="$APP_PATH/.env"
-SSL_DIR="$APP_PATH/ssl"
-CERTBOT_WEBROOT="$APP_PATH/certbot-www"
-LOG_DIR="$APP_PATH/logs"
-BACKUP_DIR="$APP_PATH/backups"
-SCRIPT_DIR="$APP_PATH/scripts"
-
-SYSTEMD_SERVICE="/etc/systemd/system/mini-transaction-ledger.service"
-
-# ============================================================
-# Colors
-# ============================================================
-
+# Color codes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# ============================================================
+# Configuration
+APP_USER="azureuser"
+APP_DIR="/var/www/Mini-Transaction-Ledger"
+DOCKER_VERSION="latest"
+
 # Helper functions
-# ============================================================
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-log() {
-    echo -e "${GREEN}[INFO]${NC} $1"
-}
+# ================================================================
+# PRE-FLIGHT CHECKS
+# ================================================================
 
-warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
+log_info "Running pre-flight checks..."
 
-error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-section() {
-    echo
-    echo -e "${BLUE}============================================================${NC}"
-    echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}============================================================${NC}"
-    echo
-}
-
-cleanup_on_error() {
-    error "Setup failed at line $1."
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    log_error "This script must be run as root (use sudo)"
     exit 1
-}
+fi
 
-trap 'cleanup_on_error $LINENO' ERR
-
-# ============================================================
-# Start
-# ============================================================
-
-section "Mini Transaction Ledger - VM Setup"
-
-log "Application path : $APP_PATH"
-log "Repository       : $REPO_URL"
-log "Git branch       : $BRANCH"
-log "Compose file     : $COMPOSE_FILE"
-log "Domain           : $DOMAIN"
-
-# ============================================================
 # Check OS
-# ============================================================
-
-section "Checking operating system"
-
-if [[ ! -f /etc/os-release ]]; then
-    error "Cannot determine operating system."
-    exit 1
+if ! grep -qi ubuntu /etc/os-release; then
+    log_warning "This script is optimized for Ubuntu. Other distros may have issues."
 fi
 
-source /etc/os-release
+log_success "Pre-flight checks passed"
 
-log "Detected OS: ${PRETTY_NAME:-Unknown}"
+# ================================================================
+# SYSTEM UPDATE
+# ================================================================
 
-# ============================================================
-# Check sudo
-# ============================================================
+log_info "Updating system packages (this may take a few minutes)..."
+apt-get update -qq
+apt-get upgrade -y -qq
+apt-get autoremove -y -qq
 
-section "Checking sudo access"
+log_success "System packages updated"
 
-if ! sudo -n true 2>/dev/null; then
-    log "Sudo password may be required."
-    sudo -v
-fi
+# ================================================================
+# INSTALL DEPENDENCIES
+# ================================================================
 
-log "Sudo access confirmed."
+log_info "Installing system dependencies..."
 
-# ============================================================
-# System update and packages
-# ============================================================
-
-section "Updating system packages"
-
-sudo apt-get update
-sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-
-log "Installing required packages..."
-
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    ca-certificates \
+apt-get install -y -qq \
     curl \
     wget \
     git \
-    nano \
+    unzip \
     htop \
+    net-tools \
     ufw \
-    logrotate \
-    openssl
+    certbot \
+    python3-certbot-nginx \
+    apt-transport-https \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    software-properties-common
 
-log "Required packages installed."
+log_success "System dependencies installed"
 
-# ============================================================
-# Docker installation
-# ============================================================
+# ================================================================
+# INSTALL DOCKER
+# ================================================================
 
-section "Checking Docker"
+log_info "Installing Docker..."
 
-if command -v docker >/dev/null 2>&1; then
-    log "Docker is already installed."
+# Remove old Docker if exists
+apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+
+# Add Docker GPG key
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+    gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+
+# Add Docker repository
+echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+    $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker
+apt-get update -qq
+apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+# Add user to docker group (avoid needing sudo for docker commands)
+usermod -aG docker "${APP_USER}" 2>/dev/null || true
+
+log_success "Docker installed"
+
+# ================================================================
+# INSTALL DOCKER COMPOSE (standalone)
+# ================================================================
+
+log_info "Installing Docker Compose..."
+
+DOCKER_COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)"
+curl -fsSL "${DOCKER_COMPOSE_URL}" -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+
+# Verify installation
+if docker-compose --version > /dev/null 2>&1; then
+    log_success "Docker Compose installed: $(docker-compose --version)"
 else
-    log "Docker is not installed. Installing Docker..."
-
-    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    sudo sh /tmp/get-docker.sh
-    rm -f /tmp/get-docker.sh
-
-    log "Docker installation completed."
-fi
-
-sudo systemctl enable docker
-sudo systemctl start docker
-
-log "Docker service is running."
-
-# ============================================================
-# Docker Compose check
-# ============================================================
-
-section "Checking Docker Compose"
-
-if sudo docker compose version >/dev/null 2>&1; then
-    log "Docker Compose is available."
-    sudo docker compose version
-else
-    error "Docker Compose is not available."
+    log_error "Docker Compose installation failed"
     exit 1
 fi
 
-# ============================================================
-# Docker group
-# ============================================================
+# ================================================================
+# VERIFY DOCKER INSTALLATION
+# ================================================================
 
-section "Configuring Docker permissions"
+log_info "Verifying Docker installation..."
 
-if id -nG "$USER" | grep -qw docker; then
-    log "User $USER is already in the docker group."
-else
-    sudo usermod -aG docker "$USER"
-    warn "User $USER has been added to the docker group."
-    warn "Log out and reconnect after setup for group membership to take effect."
-fi
-
-# ============================================================
-# Application directory
-# ============================================================
-
-section "Preparing application directory"
-
-sudo mkdir -p "$APP_PATH"
-
-sudo chown -R "$USER":"$USER" "$APP_PATH"
-
-cd "$APP_PATH"
-
-# ============================================================
-# Clone / update repository
-# ONLY devops-pipeline branch
-# ============================================================
-
-section "Setting up Git repository"
-
-if [[ ! -d "$APP_PATH/.git" ]]; then
-
-    log "Cloning repository branch: $BRANCH"
-
-    # Clone ONLY the required branch.
-    git clone \
-        --branch "$BRANCH" \
-        --single-branch \
-        "$REPO_URL" \
-        "$APP_PATH"
-
-else
-
-    log "Existing Git repository detected."
-
-    git remote set-url origin "$REPO_URL"
-
-    log "Fetching ONLY branch: $BRANCH"
-
-    git fetch origin "$BRANCH"
-
-    log "Checking out branch: $BRANCH"
-
-    git checkout -B "$BRANCH" "origin/$BRANCH"
-
-    log "Synchronizing working tree with origin/$BRANCH"
-
-    git reset --hard "origin/$BRANCH"
-
-    git clean -fd
-fi
-
-cd "$APP_PATH"
-
-CURRENT_BRANCH="$(git branch --show-current)"
-
-if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
-    error "Unexpected Git branch: $CURRENT_BRANCH"
-    error "Expected branch: $BRANCH"
+if ! docker --version > /dev/null 2>&1; then
+    log_error "Docker installation failed"
     exit 1
 fi
 
-log "Current Git branch: $CURRENT_BRANCH"
+log_success "Docker verified: $(docker --version)"
 
-CURRENT_COMMIT="$(git rev-parse --short HEAD)"
-log "Current commit: $CURRENT_COMMIT"
+# Start Docker service
+systemctl start docker
+systemctl enable docker
 
-# ============================================================
-# Verify compose file
-# ============================================================
+log_success "Docker service started and enabled"
 
-section "Checking Docker Compose configuration"
+# ================================================================
+# CREATE APPLICATION DIRECTORY
+# ================================================================
 
-if [[ ! -f "$APP_PATH/$COMPOSE_FILE" ]]; then
-    error "$COMPOSE_FILE was not found in $APP_PATH"
-    exit 1
-fi
+log_info "Creating application directory..."
 
-log "Found: $APP_PATH/$COMPOSE_FILE"
+mkdir -p "${APP_DIR}"
 
-sudo docker compose \
-    -f "$APP_PATH/$COMPOSE_FILE" \
-    config >/dev/null
+# Create necessary subdirectories
+mkdir -p "${APP_DIR}/backups"
+mkdir -p "${APP_DIR}/logs"
+mkdir -p "${APP_DIR}/ssl"
+mkdir -p "${APP_DIR}/certbot-www"
 
-log "Docker Compose configuration is valid."
+# Set permissions
+chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+chmod 750 "${APP_DIR}"
+chmod 700 "${APP_DIR}/.env" 2>/dev/null || true
 
-# ============================================================
-# Environment file
-# ============================================================
+log_success "Application directory created: ${APP_DIR}"
 
-section "Configuring environment"
+# ================================================================
+# CONFIGURE UFW FIREWALL
+# ================================================================
 
-if [[ ! -f "$ENV_FILE" ]]; then
+log_info "Configuring UFW firewall..."
 
-    log "Creating $ENV_FILE"
+# Enable UFW
+ufw --force enable > /dev/null 2>&1
 
-    cat > "$ENV_FILE" <<EOF
-# ============================================================
-# Mini Transaction Ledger - Production Environment
-# ============================================================
+# Allow SSH
+ufw allow 22/tcp > /dev/null 2>&1
+ufw allow 22/udp > /dev/null 2>&1
 
-ASPNETCORE_ENVIRONMENT=Production
-NODE_ENV=production
+# Allow HTTP and HTTPS
+ufw allow 80/tcp > /dev/null 2>&1
+ufw allow 443/tcp > /dev/null 2>&1
 
-# Application
-DOMAIN=$DOMAIN
+# Deny all other inbound by default (already set, but be explicit)
+ufw default deny incoming > /dev/null 2>&1
+ufw default allow outgoing > /dev/null 2>&1
 
-# PostgreSQL
-POSTGRES_DB=ledger_db
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=CHANGE_THIS_PASSWORD
+log_success "Firewall configured"
+ufw status
 
-# Database connection
-DATABASE_URL=postgresql://postgres:CHANGE_THIS_PASSWORD@ledger-db:5432/ledger_db
-EOF
+# ================================================================
+# CREATE SYSTEMD SERVICE (Optional - for auto-restart)
+# ================================================================
 
-    chmod 600 "$ENV_FILE"
+log_info "Creating systemd service for auto-restart..."
 
-    warn "A new .env file was created."
-    warn "IMPORTANT: Edit $ENV_FILE and change the database password."
-else
-    log "$ENV_FILE already exists. Keeping existing configuration."
-fi
-
-# ============================================================
-# Required directories
-# ============================================================
-
-section "Creating application directories"
-
-mkdir -p \
-    "$SSL_DIR" \
-    "$CERTBOT_WEBROOT" \
-    "$LOG_DIR" \
-    "$BACKUP_DIR" \
-    "$SCRIPT_DIR"
-
-chmod 700 "$SSL_DIR"
-chmod 700 "$BACKUP_DIR"
-
-log "Application directories created."
-
-# ============================================================
-# Git ignore protection
-# ============================================================
-
-section "Protecting environment and runtime files"
-
-GITIGNORE="$APP_PATH/.gitignore"
-
-touch "$GITIGNORE"
-
-add_gitignore_entry() {
-    local entry="$1"
-
-    if ! grep -Fxq "$entry" "$GITIGNORE"; then
-        echo "$entry" >> "$GITIGNORE"
-    fi
-}
-
-add_gitignore_entry ".env"
-add_gitignore_entry "ssl/"
-add_gitignore_entry "certbot-www/"
-add_gitignore_entry "logs/"
-add_gitignore_entry "backups/"
-
-log ".gitignore configured."
-
-# ============================================================
-# Firewall
-# ============================================================
-
-section "Configuring UFW firewall"
-
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-
-if sudo ufw status | grep -q "Status: active"; then
-    log "UFW is already active."
-else
-    warn "Enabling UFW."
-    sudo ufw --force enable
-fi
-
-sudo ufw status verbose
-
-# ============================================================
-# Logrotate
-# ============================================================
-
-section "Configuring log rotation"
-
-sudo tee /etc/logrotate.d/mini-transaction-ledger >/dev/null <<EOF
-$LOG_DIR/*.log {
-    daily
-    rotate 14
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-EOF
-
-log "Logrotate configuration created."
-
-# ============================================================
-# Database backup script
-# ============================================================
-
-section "Creating database backup script"
-
-cat > "$SCRIPT_DIR/backup-database.sh" <<'EOF'
-#!/usr/bin/env bash
-
-set -Eeuo pipefail
-
-APP_PATH="/var/www/Mini-Transaction-Ledger"
-COMPOSE_FILE="docker-compose.yml"
-BACKUP_DIR="$APP_PATH/backups/database"
-
-mkdir -p "$BACKUP_DIR"
-
-TIMESTAMP="$(date '+%Y-%m-%d_%H-%M-%S')"
-BACKUP_FILE="$BACKUP_DIR/ledger_db_$TIMESTAMP.sql"
-
-cd "$APP_PATH"
-
-echo "[INFO] Creating PostgreSQL backup..."
-
-sudo docker exec ledger-db \
-    pg_dump \
-    -U postgres \
-    -d ledger_db \
-    > "$BACKUP_FILE"
-
-gzip "$BACKUP_FILE"
-
-echo "[INFO] Backup created:"
-echo "$BACKUP_FILE.gz"
-
-# Keep only the latest 14 compressed backups.
-find "$BACKUP_DIR" \
-    -type f \
-    -name "*.sql.gz" \
-    -mtime +14 \
-    -delete
-
-echo "[INFO] Database backup completed."
-EOF
-
-chmod +x "$SCRIPT_DIR/backup-database.sh"
-
-# ============================================================
-# Health check script
-# ============================================================
-
-section "Creating health check script"
-
-cat > "$SCRIPT_DIR/health-check.sh" <<'EOF'
-#!/usr/bin/env bash
-
-set -u
-
-APP_PATH="/var/www/Mini-Transaction-Ledger"
-COMPOSE_FILE="docker-compose.yml"
-
-cd "$APP_PATH"
-
-echo "============================================================"
-echo "Mini Transaction Ledger - Health Check"
-echo "============================================================"
-
-echo
-echo "[Docker]"
-sudo docker version --format 'Server: {{.Server.Version}}' 2>/dev/null || true
-
-echo
-echo "[Compose Services]"
-sudo docker compose -f "$COMPOSE_FILE" ps
-
-echo
-echo "[Backend]"
-if curl -fsS --max-time 10 http://127.0.0.1:8000/health >/dev/null 2>&1; then
-    echo "Backend health: OK"
-else
-    echo "Backend health: FAILED"
-fi
-
-echo
-echo "[Frontend]"
-if curl -fsS --max-time 10 http://127.0.0.1:3000/ >/dev/null 2>&1; then
-    echo "Frontend health: OK"
-else
-    echo "Frontend health: FAILED"
-fi
-
-echo
-echo "[Nginx / HTTP]"
-if curl -fsS --max-time 10 http://127.0.0.1/ >/dev/null 2>&1; then
-    echo "Nginx HTTP: OK"
-else
-    echo "Nginx HTTP: FAILED"
-fi
-
-echo
-echo "[PostgreSQL]"
-if sudo docker exec ledger-db pg_isready -U postgres -d ledger_db >/dev/null 2>&1; then
-    echo "PostgreSQL: OK"
-else
-    echo "PostgreSQL: FAILED"
-fi
-
-echo
-echo "[Docker Resource Usage]"
-sudo docker stats --no-stream || true
-
-echo
-echo "============================================================"
-EOF
-
-chmod +x "$SCRIPT_DIR/health-check.sh"
-
-# ============================================================
-# Systemd service
-# ONLY docker-compose.yml
-# ============================================================
-
-section "Creating systemd service"
-
-sudo tee "$SYSTEMD_SERVICE" >/dev/null <<EOF
+cat > /etc/systemd/system/mini-ledger.service << 'SERVICE'
 [Unit]
-Description=Mini Transaction Ledger Docker Compose Application
+Description=Mini Transaction Ledger Docker Services
 Requires=docker.service
-After=docker.service network-online.target
+After=docker.service
 Wants=network-online.target
+After=network-online.target
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=$APP_PATH
-
-ExecStart=/usr/bin/docker compose -f $COMPOSE_FILE up -d
-ExecStop=/usr/bin/docker compose -f $COMPOSE_FILE down
-
-TimeoutStartSec=0
-TimeoutStopSec=120
+Type=simple
+Restart=always
+RestartSec=10
+User=azureuser
+WorkingDirectory=/var/www/Mini-Transaction-Ledger
+ExecStart=/usr/local/bin/docker-compose -f docker-compose.yml up
+ExecStop=/usr/local/bin/docker-compose -f docker-compose.yml down
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SERVICE
 
-sudo systemctl daemon-reload
-sudo systemctl enable mini-transaction-ledger.service
+systemctl daemon-reload
+systemctl enable mini-ledger.service
 
-log "Systemd service configured."
+log_success "Systemd service created"
 
-# ============================================================
-# SSL note
-# ============================================================
+# ================================================================
+# SETUP LOG ROTATION
+# ================================================================
 
-section "SSL configuration"
+log_info "Setting up log rotation..."
 
-warn "Initial Let's Encrypt certificate issuance is NOT performed yet."
-warn "The application/Nginx must first be running and DNS must point to this VM."
-warn "After HTTP on port 80 is working, use deployment-scripts.sh update_ssl."
-warn "This avoids requesting a certificate before the ACME challenge can be served."
+cat > /etc/logrotate.d/mini-ledger << 'LOGROTATE'
+/var/www/Mini-Transaction-Ledger/logs/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    notifempty
+    missingok
+    create 0640 azureuser azureuser
+}
+LOGROTATE
 
-# ============================================================
-# Final compose validation
-# ============================================================
+log_success "Log rotation configured"
 
-section "Final Docker Compose validation"
+# ================================================================
+# SETUP AUTOMATED BACKUPS
+# ================================================================
 
-sudo docker compose \
-    -f "$APP_PATH/$COMPOSE_FILE" \
-    config >/dev/null
+log_info "Setting up automated backups..."
 
-log "Compose configuration validated successfully."
+cat > /etc/cron.d/mini-ledger-backup << 'CRON'
+# Mini Transaction Ledger Database Backup
+# Run daily at 2 AM
+0 2 * * * azureuser cd /var/www/Mini-Transaction-Ledger && bash deployment-scripts.sh backup >> /var/www/Mini-Transaction-Ledger/logs/backup.log 2>&1
+CRON
 
-# ============================================================
-# Final summary
-# ============================================================
+chmod 644 /etc/cron.d/mini-ledger-backup
 
-section "VM Setup Completed"
+log_success "Automated backups configured"
 
-echo "Application path : $APP_PATH"
-echo "Repository       : $REPO_URL"
-echo "Git branch       : $BRANCH"
-echo "Git commit       : $(git rev-parse --short HEAD)"
-echo "Compose file     : $COMPOSE_FILE"
-echo "Environment      : $ENV_FILE"
-echo "SSL directory    : $SSL_DIR"
-echo "Systemd service  : mini-transaction-ledger.service"
+# ================================================================
+# CONFIGURE SWAP (Optional - for systems with low memory)
+# ================================================================
 
-echo
-echo "Next steps:"
-echo
-echo "1. Edit the environment file:"
-echo "   nano $ENV_FILE"
-echo
-echo "2. Make sure DNS points your domain to this Azure VM."
-echo
-echo "3. Make sure Azure NSG allows:"
-echo "   TCP 22"
-echo "   TCP 80"
-echo "   TCP 443"
-echo
-echo "4. Start the application:"
-echo "   sudo docker compose -f $COMPOSE_FILE up -d --build"
-echo
-echo "5. Check services:"
-echo "   sudo docker compose -f $COMPOSE_FILE ps"
-echo
-echo "6. Run health check:"
-echo "   bash $SCRIPT_DIR/health-check.sh"
-echo
-echo "7. After HTTP is working, issue/renew SSL using:"
-echo "   bash $APP_PATH/deployment-scripts.sh update_ssl"
-echo
-echo "8. If you were added to the docker group, log out and reconnect."
-echo
-echo -e "${GREEN}Setup completed successfully.${NC}"
-```
+log_info "Checking swap space..."
+
+if [ "$(swapon --show | wc -l)" -le 1 ]; then
+    log_warning "No swap detected. Creating 2GB swap file..."
+    
+    fallocate -l 2G /swapfile
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    
+    # Add to fstab for persistence
+    echo "/swapfile none swap sw 0 0" >> /etc/fstab
+    
+    log_success "Swap created and enabled"
+else
+    log_success "Swap already configured"
+fi
+
+# ================================================================
+# SYSTEM LIMITS
+# ================================================================
+
+log_info "Configuring system limits..."
+
+cat >> /etc/security/limits.conf << 'LIMITS'
+# Docker limits
+* soft nofile 65536
+* hard nofile 65536
+* soft nproc 32768
+* hard nproc 32768
+LIMITS
+
+log_success "System limits configured"
+
+# ================================================================
+# NETWORK TUNING (Optional)
+# ================================================================
+
+log_info "Configuring network tuning..."
+
+cat >> /etc/sysctl.conf << 'SYSCTL'
+# Network tuning for Docker
+net.core.somaxconn=32768
+net.ipv4.tcp_max_syn_backlog=32768
+net.ipv4.ip_local_port_range=1024 65535
+SYSCTL
+
+sysctl -p > /dev/null 2>&1
+
+log_success "Network tuning configured"
+
+# ================================================================
+# FINAL CHECKS
+# ================================================================
+
+log_info "Running final checks..."
+
+# Check disk space
+DISK_USAGE=$(df "${APP_DIR}" | awk 'NR==2 {print int($5)}')
+if [ "${DISK_USAGE}" -gt 80 ]; then
+    log_warning "Disk usage is ${DISK_USAGE}% - consider cleaning up old backups"
+else
+    log_success "Disk space OK (${DISK_USAGE}% used)"
+fi
+
+# Check Docker daemon
+if systemctl is-active --quiet docker; then
+    log_success "Docker daemon is running"
+else
+    log_error "Docker daemon is not running"
+    exit 1
+fi
+
+# Check docker-compose
+if docker-compose --version > /dev/null 2>&1; then
+    log_success "docker-compose is available"
+else
+    log_error "docker-compose is not available"
+    exit 1
+fi
+
+# ================================================================
+# SUMMARY
+# ================================================================
+
+echo ""
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║${NC}     SETUP COMPLETED SUCCESSFULLY! ${GREEN}✓${NC}                   ${GREEN}║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+echo "📋 Summary:"
+echo "   Application Dir: ${APP_DIR}"
+echo "   Docker Version: $(docker --version)"
+echo "   Docker Compose: $(docker-compose --version)"
+echo "   UFW Status: $(ufw status | head -1)"
+echo ""
+
+echo "🚀 Next Steps:"
+echo "   1. Navigate to application directory:"
+echo "      cd ${APP_DIR}"
+echo ""
+echo "   2. Clone your repository:"
+echo "      git clone -b devops-pipeline https://github.com/YOUR_USERNAME/Mini-Transaction-Ledger.git ."
+echo ""
+echo "   3. Create .env file from .env.example:"
+echo "      cp .env.example .env"
+echo "      nano .env  # Edit with your values"
+echo ""
+echo "   4. Create SSL certificate:"
+echo "      mkdir -p ssl certbot-www"
+echo "      docker run --rm -v \$(pwd)/ssl:/etc/letsencrypt -v \$(pwd)/certbot-www:/var/www/certbot \\"
+echo "        certbot/certbot certonly --webroot -w /var/www/certbot \\"
+echo "        --agree-tos --no-eff-email -d saifullahmnsur.dev -d www.saifullahmnsur.dev"
+echo ""
+echo "   5. Start Docker containers:"
+echo "      docker-compose -f docker-compose.yml up -d --build"
+echo ""
+echo "   6. Check health:"
+echo "      bash deployment-scripts.sh health_check"
+echo ""
+echo "   7. Visit your website:"
+echo "      https://saifullahmnsur.dev"
+echo ""
+
+echo "📚 Useful Commands:"
+echo "   View logs:        docker-compose logs -f backend"
+echo "   Container status: docker-compose ps"
+echo "   System stats:     docker stats --no-stream"
+echo "   Backup database:  bash deployment-scripts.sh backup"
+echo ""
+
+echo "⚠️  Important:"
+echo "   - Update .env with your actual values"
+echo "   - Configure DNS to point to this VM's IP"
+echo "   - SSL certificate needs DNS configured FIRST"
+echo "   - Keep backups in safe location"
+echo ""
+
+log_success "Setup script completed!"

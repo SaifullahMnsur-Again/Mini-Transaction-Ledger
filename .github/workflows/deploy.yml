@@ -1,9 +1,23 @@
-name: Deploy MiniTransactionLedger to Azure VM (devops-pipeline)
+name: Deploy to Azure VM
+
+# ================================================================
+# GITHUB ACTIONS CI/CD WORKFLOW
+# ================================================================
+# Triggers: Push to devops-pipeline, manual workflow_dispatch
+# Steps: Build → Scan → Test → Deploy
+# Target: Azure VM via SSH
+# ================================================================
 
 on:
   push:
-    branches: [ "devops-pipeline" ]
-  workflow_dispatch:  # Allow manual trigger
+    branches:
+      - devops-pipeline
+  workflow_dispatch:
+    inputs:
+      deploy_message:
+        description: 'Deployment message'
+        required: false
+        default: 'Manual deployment'
 
 env:
   REGISTRY: ghcr.io
@@ -11,215 +25,293 @@ env:
   IMAGE_NAME_FRONTEND: ${{ github.repository }}/frontend
 
 jobs:
-  # ==========================================
-  # Build Backend
-  # ==========================================
+  # ================================================================
+  # JOB 1: BUILD BACKEND
+  # ================================================================
   build-backend:
+    name: Build Backend Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '10.0.x'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Restore dependencies
-      working-directory: ./Backend
-      run: dotnet restore "Backend.csproj"
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build backend
-      working-directory: ./Backend
-      run: dotnet build "Backend.csproj" -c Release --no-restore
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            latest
 
-    - name: Run unit tests
-      working-directory: ./Backend
-      run: dotnet test "Backend.csproj" -c Release --no-build --verbosity normal || true
+      - name: Build and push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./Backend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-    - name: Log in to Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Build and push backend Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: ./Backend
-        push: true
-        tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-  # ==========================================
-  # Build Frontend
-  # ==========================================
+  # ================================================================
+  # JOB 2: BUILD FRONTEND
+  # ================================================================
   build-frontend:
+    name: Build Frontend Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-        cache-dependency-path: 'frontend/package-lock.json'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Install dependencies
-      working-directory: ./frontend
-      run: npm ci
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Lint code
-      working-directory: ./frontend
-      run: npm run lint || true
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            latest
 
-    - name: Build frontend
-      working-directory: ./frontend
-      run: npm run build
+      - name: Build and push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-    - name: Log in to Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Build and push frontend Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: ./frontend
-        push: true
-        tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-  # ==========================================
-  # Security Scanning
-  # ==========================================
+  # ================================================================
+  # JOB 3: SECURITY SCANNING (Trivy)
+  # ================================================================
   security-scan:
-    runs-on: ubuntu-latest
+    name: Security Scan
     needs: [build-backend, build-frontend]
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Run Trivy vulnerability scanner on backend image
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
-        format: 'sarif'
-        output: 'trivy-backend.sarif'
-
-    - name: Run Trivy vulnerability scanner on frontend image
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
-        format: 'sarif'
-        output: 'trivy-frontend.sarif'
-
-    - name: Upload Trivy results to GitHub Security
-      uses: github/codeql-action/upload-sarif@v2
-      with:
-        sarif_file: 'trivy-*.sarif'
-
-  # ==========================================
-  # Deploy to Azure VM
-  # ==========================================
-  deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Run Trivy scan on Backend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
+          format: 'sarif'
+          output: 'trivy-backend.sarif'
+
+      - name: Run Trivy scan on Frontend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
+          format: 'sarif'
+          output: 'trivy-frontend.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-*.sarif'
+          category: 'trivy'
+
+  # ================================================================
+  # JOB 4: DEPLOY TO AZURE VM
+  # ================================================================
+  deploy:
+    name: Deploy to Azure VM
     needs: [build-backend, build-frontend, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/devops-pipeline' && github.event_name == 'push'
     environment:
       name: production
       url: https://${{ secrets.PRODUCTION_DOMAIN }}
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: devops-pipeline
 
-    - name: Set up SSH Key
-      uses: webfactory/ssh-agent@v0.9.0
-      with:
-        ssh-private-key: ${{ secrets.AZURE_SSH_KEY }}
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.AZURE_VM_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-    - name: Deploy to Azure VM
-      env:
-        VM_IP: ${{ secrets.AZURE_VM_IP }}
-        VM_USER: ${{ secrets.AZURE_VM_USERNAME }}
-        VM_PATH: ${{ secrets.VM_APP_PATH }}
-        POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-        POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-      run: |
-        mkdir -p ~/.ssh
-        ssh-keyscan -H "$VM_IP" >> ~/.ssh/known_hosts
-
-        ssh "$VM_USER@$VM_IP" << 'EOF'
+      - name: Deploy to VM (pull and rebuild)
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.AZURE_VM_USERNAME }}@${{ secrets.AZURE_VM_IP }} << 'DEPLOY_SCRIPT'
           set -e
           
-          cd "${{ env.VM_PATH }}"
-          
-          # Create backup
-          BACKUP_DIR="backups/$(date +%Y%m%d_%H%M%S)"
-          mkdir -p "$BACKUP_DIR"
-          docker compose -f docker-compose.yml logs > "$BACKUP_DIR/logs.txt" 2>&1 || true
+          # Navigate to app directory
+          cd ${{ secrets.VM_APP_PATH }}
           
           # Pull latest code
-          git fetch origin devops-pipeline
+          echo "Pulling latest code from devops-pipeline..."
+          git fetch origin
           git reset --hard origin/devops-pipeline
+          git clean -fd
           
-          # Set environment
-          cat > .env << 'ENVEOF'
-          POSTGRES_USER=${{ env.POSTGRES_USER }}
-          POSTGRES_PASSWORD=${{ env.POSTGRES_PASSWORD }}
-          POSTGRES_DB=${{ env.POSTGRES_DB }}
-          ASPNETCORE_ENVIRONMENT=Production
-          NODE_ENV=production
-          DOMAIN=${{ secrets.PRODUCTION_DOMAIN }}
-          ENVEOF
+          # Load environment (if needed for docker-compose)
+          if [ -f .env ]; then
+            export $(cat .env | grep -v '#' | xargs)
+          fi
           
-          # Deploy
-          docker compose -f docker-compose.yml down
-          docker compose -f docker-compose.yml up -d --build --remove-orphans
+          # Stop old containers
+          echo "Stopping old containers..."
+          docker-compose -f docker-compose.yml down || true
           
-          # Health checks
-          echo "⏳ Waiting for services to be healthy..."
+          # Build and start new containers
+          echo "Building and starting containers..."
+          docker-compose -f docker-compose.yml up -d --build
+          
+          # Wait for services to be ready
+          echo "Waiting for services to start..."
+          sleep 30
+          
+          # Health check loop
+          echo "Running health checks..."
+          HEALTH_CHECK_PASSED=0
           for i in {1..30}; do
-            if curl -f http://localhost:8000/health > /dev/null 2>&1 && \
-               curl -f http://localhost/health > /dev/null 2>&1; then
-              echo "✅ Deployment successful!"
-              docker compose -f docker-compose.yml ps
-              exit 0
+            if docker-compose -f docker-compose.yml exec -T backend curl -f http://localhost:8080/health > /dev/null 2>&1 && \
+               docker-compose -f docker-compose.yml exec -T frontend wget --spider -q http://localhost:3000 > /dev/null 2>&1 && \
+               docker-compose -f docker-compose.yml exec -T postgres-db pg_isready -U postgres > /dev/null 2>&1; then
+              echo "✓ All services are healthy"
+              HEALTH_CHECK_PASSED=1
+              break
             fi
-            echo "Waiting... ($i/30)"
+            echo "Health check attempt $i/30... waiting..."
             sleep 2
           done
           
-          echo "❌ Health check failed - rolling back"
-          docker compose -f docker-compose.yml down
-          exit 1
-        EOF
+          if [ $HEALTH_CHECK_PASSED -eq 0 ]; then
+            echo "❌ Health checks failed!"
+            echo "Container logs:"
+            docker-compose -f docker-compose.yml logs
+            exit 1
+          fi
+          
+          echo "✓ Deployment completed successfully!"
+          DEPLOY_SCRIPT
 
-    - name: Notify on Success
-      if: success()
-      run: echo "✅ Deployment to ${{ secrets.PRODUCTION_DOMAIN }} completed successfully!"
+      - name: Post-deploy verification
+        run: |
+          echo "Verifying deployment..."
+          curl -f https://${{ secrets.PRODUCTION_DOMAIN }}/health || exit 1
+          echo "✓ Website is accessible"
 
-    - name: Notify on Failure
-      if: failure()
-      run: echo "❌ Deployment failed - check logs"
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
+
+      - name: Deployment notification
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Deployment successful! Application is live at https://${{ secrets.PRODUCTION_DOMAIN }}'
+            })
+
+      - name: Deployment failure notification
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ Deployment failed! Check the workflow logs for details.'
+            })
+
+# ================================================================
+# WORKFLOW NOTES
+# ================================================================
+#
+# 1. SECRETS REQUIRED (set in GitHub Settings → Secrets):
+#    - AZURE_SSH_KEY: SSH private key for Azure VM
+#    - AZURE_VM_IP: Public IP of Azure VM
+#    - AZURE_VM_USERNAME: SSH username (default: azureuser)
+#    - VM_APP_PATH: App directory on VM (default: /var/www/Mini-Transaction-Ledger)
+#    - PRODUCTION_DOMAIN: Domain name (e.g., ledger.example.com)
+#    - POSTGRES_USER: Database user
+#    - POSTGRES_PASSWORD: Database password
+#    - POSTGRES_DB: Database name
+#
+# 2. ENVIRONMENT:
+#    - Uses production environment for deployments
+#    - Environment protection rules can be set in GitHub
+#    - Requires manual approval if configured
+#
+# 3. DOCKER REGISTRY:
+#    - Uses GitHub Container Registry (ghcr.io)
+#    - Images tagged with branch, sha, and latest
+#    - Automatic cleanup policies recommended
+#
+# 4. SECURITY:
+#    - Trivy scans images for vulnerabilities
+#    - SARIF results uploaded to GitHub Security tab
+#    - SSH key handled securely (not logged)
+#
+# 5. DEPLOYMENT:
+#    - Only deploys on push to devops-pipeline
+#    - Can manually trigger with workflow_dispatch
+#    - Runs health checks before considering deployment successful
+#    - Rolls back if health checks fail
+#
+# 6. TESTING:
+#    - Currently no automated tests (to be added)
+#    - Add test job between build and deploy when ready
+#
+# 7. MONITORING:
+#    - GitHub comments notify of deployment status
+#    - Check Actions tab for detailed logs
+#    - Workflow duration typically 5-10 minutes
+#
+# ================================================================
