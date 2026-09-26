@@ -86,7 +86,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: ghcr.io/SaifullahMnsur-Again/Mini-Transaction-Ledger/backend:${IMAGE_TAG:-latest}
+    image: ghcr.io/saifullahmnsur-again/mini-transaction-ledger/backend:${IMAGE_TAG:-latest}
     container_name: ledger-backend
     restart: unless-stopped
     environment:
@@ -134,7 +134,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: ghcr.io/SaifullahMnsur-Again/Mini-Transaction-Ledger/frontend:${IMAGE_TAG:-latest}
+    image: ghcr.io/saifullahmnsur-again/mini-transaction-ledger/frontend:${IMAGE_TAG:-latest}
     container_name: ledger-frontend
     restart: unless-stopped
     environment:
