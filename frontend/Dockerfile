@@ -29,7 +29,7 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g serve --no-save
 
-COPY --from=builder /app/build ./build
+COPY --from=builder /app/dist ./build
 
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
