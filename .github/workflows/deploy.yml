@@ -3,315 +3,714 @@ name: Deploy to Azure VM
 # ================================================================
 # GITHUB ACTIONS CI/CD WORKFLOW
 # ================================================================
-# Triggers: Push to devops-pipeline, manual workflow_dispatch
-# Steps: Build → Scan → Test → Deploy
-# Target: Azure VM via SSH
+# Branch: devops-pipeline ONLY
+# Compose: docker-compose.yml ONLY
+#
+# Pipeline:
+#   Build Backend
+#        ↓
+#   Build Frontend
+#        ↓
+#   Security Scan
+#        ↓
+#   Deploy to Azure VM
+#        ↓
+#   Health Checks
+#        ↓
+#   HTTPS Verification
+#
+# Docker Registry: GitHub Container Registry (GHCR)
 # ================================================================
 
 on:
   push:
     branches:
       - devops-pipeline
+
   workflow_dispatch:
     inputs:
       deploy_message:
-        description: 'Deployment message'
+        description: "Deployment message"
         required: false
-        default: 'Manual deployment'
+        default: "Manual deployment"
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME_BACKEND: ${{ github.repository }}/backend
   IMAGE_NAME_FRONTEND: ${{ github.repository }}/frontend
 
+# ================================================================
+# JOB 1: BUILD BACKEND
+# ================================================================
+
 jobs:
-  # ================================================================
-  # JOB 1: BUILD BACKEND
-  # ================================================================
+
   build-backend:
     name: Build Backend Image
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       packages: write
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # ------------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------------
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            latest
-
-      - name: Build and push Backend
-        uses: docker/build-push-action@v5
-        with:
-          context: ./Backend
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ================================================================
-  # JOB 2: BUILD FRONTEND
-  # ================================================================
-  build-frontend:
-    name: Build Frontend Image
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            latest
-
-      - name: Build and push Frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ================================================================
-  # JOB 3: SECURITY SCANNING (Trivy)
-  # ================================================================
-  security-scan:
-    name: Security Scan
-    needs: [build-backend, build-frontend]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - name: Run Trivy scan on Backend
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
-          format: 'sarif'
-          output: 'trivy-backend.sarif'
-
-      - name: Run Trivy scan on Frontend
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
-          format: 'sarif'
-          output: 'trivy-frontend.sarif'
-
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v2
-        if: always()
-        with:
-          sarif_file: 'trivy-*.sarif'
-          category: 'trivy'
-
-  # ================================================================
-  # JOB 4: DEPLOY TO AZURE VM
-  # ================================================================
-  deploy:
-    name: Deploy to Azure VM
-    needs: [build-backend, build-frontend, security-scan]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/devops-pipeline' && github.event_name == 'push'
-    environment:
-      name: production
-      url: https://${{ secrets.PRODUCTION_DOMAIN }}
-    steps:
-      - name: Checkout code
+      - name: Checkout devops-pipeline
         uses: actions/checkout@v4
         with:
           ref: devops-pipeline
+          fetch-depth: 0
 
-      - name: Install SSH key
+      # ------------------------------------------------------------
+      # Docker Buildx
+      # ------------------------------------------------------------
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ------------------------------------------------------------
+      # Login to GHCR
+      # ------------------------------------------------------------
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------
+      # Build and Push
+      # ------------------------------------------------------------
+
+      - name: Build and Push Backend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./Backend
+          push: true
+
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
+
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+# ================================================================
+# JOB 2: BUILD FRONTEND
+# ================================================================
+
+  build-frontend:
+    name: Build Frontend Image
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+
+      # ------------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------------
+
+      - name: Checkout devops-pipeline
+        uses: actions/checkout@v4
+        with:
+          ref: devops-pipeline
+          fetch-depth: 0
+
+      # ------------------------------------------------------------
+      # Docker Buildx
+      # ------------------------------------------------------------
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ------------------------------------------------------------
+      # Login to GHCR
+      # ------------------------------------------------------------
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------
+      # Build and Push
+      # ------------------------------------------------------------
+
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
+
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+# ================================================================
+# JOB 3: SECURITY SCAN
+# ================================================================
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    needs:
+      - build-backend
+      - build-frontend
+
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+
+      # ------------------------------------------------------------
+      # Login to GHCR
+      # ------------------------------------------------------------
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------
+      # Scan Backend
+      # ------------------------------------------------------------
+
+      - name: Scan Backend Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
+          format: sarif
+          output: trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      # ------------------------------------------------------------
+      # Scan Frontend
+      # ------------------------------------------------------------
+
+      - name: Scan Frontend Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      # ------------------------------------------------------------
+      # Upload Backend Scan
+      # ------------------------------------------------------------
+
+      - name: Upload Backend Trivy Results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend
+
+      # ------------------------------------------------------------
+      # Upload Frontend Scan
+      # ------------------------------------------------------------
+
+      - name: Upload Frontend Trivy Results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-frontend.sarif
+          category: trivy-frontend
+
+# ================================================================
+# JOB 4: DEPLOY TO AZURE VM
+# ================================================================
+
+  deploy:
+    name: Deploy to Azure VM
+
+    needs:
+      - build-backend
+      - build-frontend
+      - security-scan
+
+    runs-on: ubuntu-latest
+
+    # Deploy only when running against devops-pipeline.
+    # Works for both push and workflow_dispatch.
+    if: github.ref == 'refs/heads/devops-pipeline'
+
+    environment:
+      name: production
+      url: https://${{ secrets.PRODUCTION_DOMAIN }}
+
+    permissions:
+      contents: read
+
+    steps:
+
+      # ------------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------------
+
+      - name: Checkout devops-pipeline
+        uses: actions/checkout@v4
+        with:
+          ref: devops-pipeline
+          fetch-depth: 1
+
+      # ------------------------------------------------------------
+      # Configure SSH
+      # ------------------------------------------------------------
+
+      - name: Configure SSH
         run: |
+          set -e
+
           mkdir -p ~/.ssh
+
           echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.AZURE_VM_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Deploy to VM (pull and rebuild)
+          ssh-keyscan -H "${{ secrets.AZURE_VM_IP }}" \
+            >> ~/.ssh/known_hosts 2>/dev/null
+
+      # ------------------------------------------------------------
+      # Deploy
+      # ------------------------------------------------------------
+
+      - name: Deploy to Azure VM
+        env:
+          VM_APP_PATH: ${{ secrets.VM_APP_PATH }}
+          VM_USERNAME: ${{ secrets.AZURE_VM_USERNAME }}
+          VM_IP: ${{ secrets.AZURE_VM_IP }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BACKEND_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}
+          FRONTEND_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.AZURE_VM_USERNAME }}@${{ secrets.AZURE_VM_IP }} << 'DEPLOY_SCRIPT'
           set -e
-          
-          # Navigate to app directory
-          cd ${{ secrets.VM_APP_PATH }}
-          
-          # Pull latest code
-          echo "Pulling latest code from devops-pipeline..."
-          git fetch origin
-          git reset --hard origin/devops-pipeline
-          git clean -fd
-          
-          # Load environment (if needed for docker-compose)
-          if [ -f .env ]; then
-            export $(cat .env | grep -v '#' | xargs)
-          fi
-          
-          # Stop old containers
-          echo "Stopping old containers..."
-          docker-compose -f docker-compose.yml down || true
-          
-          # Build and start new containers
-          echo "Building and starting containers..."
-          docker-compose -f docker-compose.yml up -d --build
-          
-          # Wait for services to be ready
-          echo "Waiting for services to start..."
-          sleep 30
-          
-          # Health check loop
-          echo "Running health checks..."
-          HEALTH_CHECK_PASSED=0
-          for i in {1..30}; do
-            if docker-compose -f docker-compose.yml exec -T backend curl -f http://localhost:8080/health > /dev/null 2>&1 && \
-               docker-compose -f docker-compose.yml exec -T frontend wget --spider -q http://localhost:3000 > /dev/null 2>&1 && \
-               docker-compose -f docker-compose.yml exec -T postgres-db pg_isready -U postgres > /dev/null 2>&1; then
-              echo "✓ All services are healthy"
-              HEALTH_CHECK_PASSED=1
-              break
-            fi
-            echo "Health check attempt $i/30... waiting..."
-            sleep 2
-          done
-          
-          if [ $HEALTH_CHECK_PASSED -eq 0 ]; then
-            echo "❌ Health checks failed!"
-            echo "Container logs:"
-            docker-compose -f docker-compose.yml logs
+
+          ssh -i ~/.ssh/deploy_key \
+            "${VM_USERNAME}@${VM_IP}" \
+            "VM_APP_PATH='${VM_APP_PATH}' \
+             GHCR_USERNAME='${GHCR_USERNAME}' \
+             GHCR_TOKEN='${GHCR_TOKEN}' \
+             BACKEND_IMAGE='${BACKEND_IMAGE}' \
+             FRONTEND_IMAGE='${FRONTEND_IMAGE}' \
+             IMAGE_TAG='${IMAGE_TAG}' \
+             bash -s" << 'DEPLOY_SCRIPT'
+
+          set -e
+
+          echo "================================================"
+          echo "Starting deployment"
+          echo "================================================"
+
+          APP_PATH="${VM_APP_PATH}"
+          BRANCH="devops-pipeline"
+          COMPOSE_FILE="docker-compose.yml"
+
+          cd "$APP_PATH"
+
+          echo "Application directory: $APP_PATH"
+          echo "Branch: $BRANCH"
+          echo "Compose file: $COMPOSE_FILE"
+          echo "Image tag: $IMAGE_TAG"
+
+          # --------------------------------------------------------
+          # Verify repository
+          # --------------------------------------------------------
+
+          if [ ! -d .git ]; then
+            echo "ERROR: Git repository not found."
             exit 1
           fi
-          
-          echo "✓ Deployment completed successfully!"
+
+          # --------------------------------------------------------
+          # Fetch ONLY devops-pipeline
+          # --------------------------------------------------------
+
+          echo "Fetching devops-pipeline..."
+
+          git fetch origin devops-pipeline
+
+          echo "Resetting working tree to origin/devops-pipeline..."
+
+          git reset --hard origin/devops-pipeline
+
+          # --------------------------------------------------------
+          # Remove stale untracked files while preserving runtime
+          # data.
+          #
+          # IMPORTANT:
+          #   ssl/          -> Let's Encrypt certificates
+          #   certbot-www/  -> ACME challenge files
+          #   .env          -> VM environment configuration
+          # --------------------------------------------------------
+
+          echo "Cleaning stale Git files..."
+
+          git clean -fd \
+            -e ssl/ \
+            -e certbot-www/ \
+            -e .env
+
+          # --------------------------------------------------------
+          # Verify runtime data still exists
+          # --------------------------------------------------------
+
+          echo "Checking SSL directory..."
+
+          if [ ! -d ssl ]; then
+            echo "ERROR: ssl/ directory is missing."
+            echo "Deployment stopped to prevent HTTPS configuration loss."
+            exit 1
+          fi
+
+          echo "Checking Certbot webroot..."
+
+          mkdir -p certbot-www
+
+          # --------------------------------------------------------
+          # Login to GHCR
+          # --------------------------------------------------------
+
+          echo "Logging into GitHub Container Registry..."
+
+          echo "$GHCR_TOKEN" | docker login ghcr.io \
+            -u "$GHCR_USERNAME" \
+            --password-stdin
+
+          # --------------------------------------------------------
+          # Pull the exact images built by this GitHub Actions run.
+          # --------------------------------------------------------
+
+          echo "Pulling backend image..."
+
+          docker pull "${BACKEND_IMAGE}:${IMAGE_TAG}"
+
+          echo "Pulling frontend image..."
+
+          docker pull "${FRONTEND_IMAGE}:${IMAGE_TAG}"
+
+          # --------------------------------------------------------
+          # Verify images exist
+          # --------------------------------------------------------
+
+          echo "Verifying images..."
+
+          docker image inspect \
+            "${BACKEND_IMAGE}:${IMAGE_TAG}" > /dev/null
+
+          docker image inspect \
+            "${FRONTEND_IMAGE}:${IMAGE_TAG}" > /dev/null
+
+          # --------------------------------------------------------
+          # Deploy
+          #
+          # IMPORTANT:
+          # No docker compose down.
+          # No --build.
+          # PostgreSQL volume remains untouched.
+          # SSL/Certbot data remains untouched.
+          # --------------------------------------------------------
+
+          echo "Starting application with Docker Compose..."
+
+          IMAGE_TAG="$IMAGE_TAG" \
+            docker compose \
+            -f "$COMPOSE_FILE" \
+            up -d \
+            --no-build \
+            --remove-orphans
+
+          # --------------------------------------------------------
+          # Show container status
+          # --------------------------------------------------------
+
+          echo "Container status:"
+
+          docker compose \
+            -f "$COMPOSE_FILE" \
+            ps
+
+          # --------------------------------------------------------
+          # Wait for containers
+          # --------------------------------------------------------
+
+          echo "Waiting for services..."
+
+          sleep 10
+
+          # --------------------------------------------------------
+          # Health checks
+          # --------------------------------------------------------
+
+          echo "Running health checks..."
+
+          HEALTH_CHECK_PASSED=0
+
+          for i in $(seq 1 30); do
+
+            echo "Health check attempt $i/30..."
+
+            BACKEND_OK=0
+            FRONTEND_OK=0
+            DATABASE_OK=0
+
+            # Backend
+            if docker compose \
+              -f "$COMPOSE_FILE" \
+              exec -T backend \
+              curl -fsS http://localhost:8080/health \
+              > /dev/null 2>&1; then
+
+              BACKEND_OK=1
+
+            fi
+
+            # Frontend
+            if docker compose \
+              -f "$COMPOSE_FILE" \
+              exec -T frontend \
+              wget --spider -q http://localhost:3000 \
+              > /dev/null 2>&1; then
+
+              FRONTEND_OK=1
+
+            fi
+
+            # PostgreSQL
+            if docker compose \
+              -f "$COMPOSE_FILE" \
+              exec -T postgres-db \
+              pg_isready -U postgres \
+              > /dev/null 2>&1; then
+
+              DATABASE_OK=1
+
+            fi
+
+            if [ "$BACKEND_OK" -eq 1 ] && \
+               [ "$FRONTEND_OK" -eq 1 ] && \
+               [ "$DATABASE_OK" -eq 1 ]; then
+
+              echo "✓ Backend healthy"
+              echo "✓ Frontend healthy"
+              echo "✓ PostgreSQL healthy"
+
+              HEALTH_CHECK_PASSED=1
+              break
+
+            fi
+
+            sleep 2
+
+          done
+
+          # --------------------------------------------------------
+          # Health check failure
+          # --------------------------------------------------------
+
+          if [ "$HEALTH_CHECK_PASSED" -ne 1 ]; then
+
+            echo ""
+            echo "================================================"
+            echo "DEPLOYMENT HEALTH CHECK FAILED"
+            echo "================================================"
+
+            echo ""
+            echo "Container status:"
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              ps
+
+            echo ""
+            echo "Container logs:"
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              logs \
+              --tail=200
+
+            exit 1
+
+          fi
+
+          # --------------------------------------------------------
+          # Nginx configuration test
+          # --------------------------------------------------------
+
+          echo "Testing Nginx configuration..."
+
+          if docker exec ledger-nginx nginx -t; then
+            echo "✓ Nginx configuration is valid"
+          else
+            echo "ERROR: Nginx configuration test failed."
+            exit 1
+          fi
+
+          # --------------------------------------------------------
+          # Final local HTTPS check from VM
+          # --------------------------------------------------------
+
+          echo "Checking HTTPS from Azure VM..."
+
+          if curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 15 \
+            "https://${{ secrets.PRODUCTION_DOMAIN }}/health" \
+            > /dev/null; then
+
+            echo "✓ HTTPS health endpoint is responding"
+
+          else
+
+            echo "ERROR: HTTPS health check failed."
+
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              ps
+
+            exit 1
+
+          fi
+
+          # --------------------------------------------------------
+          # Logout from GHCR
+          # --------------------------------------------------------
+
+          docker logout ghcr.io || true
+
+          echo ""
+          echo "================================================"
+          echo "✓ DEPLOYMENT COMPLETED SUCCESSFULLY"
+          echo "================================================"
+          echo "Branch: $BRANCH"
+          echo "Commit: $IMAGE_TAG"
+          echo "Backend: ${BACKEND_IMAGE}:${IMAGE_TAG}"
+          echo "Frontend: ${FRONTEND_IMAGE}:${IMAGE_TAG}"
+          echo "Domain: https://${{ secrets.PRODUCTION_DOMAIN }}"
+          echo "================================================"
+
           DEPLOY_SCRIPT
 
-      - name: Post-deploy verification
-        run: |
-          echo "Verifying deployment..."
-          curl -f https://${{ secrets.PRODUCTION_DOMAIN }}/health || exit 1
-          echo "✓ Website is accessible"
+      # ------------------------------------------------------------
+      # Public HTTPS verification
+      # ------------------------------------------------------------
 
-      - name: Cleanup SSH key
+      - name: Verify Production HTTPS
+        run: |
+          set -e
+
+          echo "Checking production HTTPS endpoint..."
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 30 \
+            "https://${{ secrets.PRODUCTION_DOMAIN }}/health" \
+            > /dev/null
+
+          echo "✓ Production HTTPS endpoint is accessible"
+
+      # ------------------------------------------------------------
+      # Deployment summary
+      # ------------------------------------------------------------
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "================================================"
+          echo "DEPLOYMENT SUCCESSFUL"
+          echo "================================================"
+          echo "Branch: devops-pipeline"
+          echo "Commit: ${{ github.sha }}"
+          echo "Backend image:"
+          echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}"
+          echo "Frontend image:"
+          echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}"
+          echo "Production:"
+          echo "  https://${{ secrets.PRODUCTION_DOMAIN }}"
+          echo "================================================"
+
+      # ------------------------------------------------------------
+      # SSH cleanup
+      # ------------------------------------------------------------
+
+      - name: Cleanup SSH Key
         if: always()
         run: |
           rm -f ~/.ssh/deploy_key
 
-      - name: Deployment notification
-        if: success()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '✅ Deployment successful! Application is live at https://${{ secrets.PRODUCTION_DOMAIN }}'
-            })
-
-      - name: Deployment failure notification
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '❌ Deployment failed! Check the workflow logs for details.'
-            })
-
 # ================================================================
-# WORKFLOW NOTES
+# REQUIRED GITHUB SECRETS
 # ================================================================
 #
-# 1. SECRETS REQUIRED (set in GitHub Settings → Secrets):
-#    - AZURE_SSH_KEY: SSH private key for Azure VM
-#    - AZURE_VM_IP: Public IP of Azure VM
-#    - AZURE_VM_USERNAME: SSH username (default: azureuser)
-#    - VM_APP_PATH: App directory on VM (default: /var/www/Mini-Transaction-Ledger)
-#    - PRODUCTION_DOMAIN: Domain name (e.g., ledger.example.com)
-#    - POSTGRES_USER: Database user
-#    - POSTGRES_PASSWORD: Database password
-#    - POSTGRES_DB: Database name
+# AZURE_SSH_KEY
+#     SSH private key for Azure VM
 #
-# 2. ENVIRONMENT:
-#    - Uses production environment for deployments
-#    - Environment protection rules can be set in GitHub
-#    - Requires manual approval if configured
+# AZURE_VM_IP
+#     Public IP address of Azure VM
 #
-# 3. DOCKER REGISTRY:
-#    - Uses GitHub Container Registry (ghcr.io)
-#    - Images tagged with branch, sha, and latest
-#    - Automatic cleanup policies recommended
+# AZURE_VM_USERNAME
+#     Usually: azureuser
 #
-# 4. SECURITY:
-#    - Trivy scans images for vulnerabilities
-#    - SARIF results uploaded to GitHub Security tab
-#    - SSH key handled securely (not logged)
+# VM_APP_PATH
+#     /var/www/Mini-Transaction-Ledger
 #
-# 5. DEPLOYMENT:
-#    - Only deploys on push to devops-pipeline
-#    - Can manually trigger with workflow_dispatch
-#    - Runs health checks before considering deployment successful
-#    - Rolls back if health checks fail
+# PRODUCTION_DOMAIN
+#     ledger.saifullahmnsur.dev
 #
-# 6. TESTING:
-#    - Currently no automated tests (to be added)
-#    - Add test job between build and deploy when ready
+# ================================================================
+# IMPORTANT
+# ================================================================
 #
-# 7. MONITORING:
-#    - GitHub comments notify of deployment status
-#    - Check Actions tab for detailed logs
-#    - Workflow duration typically 5-10 minutes
+# 1. Only devops-pipeline is deployed.
+#
+# 2. Only docker-compose.yml is used.
+#
+# 3. docker-compose.prod.yml is NOT used.
+#
+# 4. The VM does NOT rebuild application images.
+#    GitHub Actions builds and pushes them to GHCR.
+#
+# 5. The VM pulls the exact GitHub commit SHA images.
+#
+# 6. docker compose down is NOT used.
+#
+# 7. PostgreSQL named volume is preserved.
+#
+# 8. ssl/ is preserved.
+#
+# 9. certbot-www/ is preserved.
+#
+# 10. .env is preserved.
+#
+# 11. Let's Encrypt certificate issuance is NOT repeated
+#     during every deployment.
+#
+# 12. Certbot continues running independently for renewal.
+#
+# 13. HTTPS is verified after deployment.
 #
 # ================================================================
