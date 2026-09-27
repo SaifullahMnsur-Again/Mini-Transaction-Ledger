@@ -126,7 +126,8 @@ services:
 # ============================================================
 volumes:
   postgres_data_staging:
-    driver: local
+    external: true
+    name: mini-transaction-ledger_postgres_data_staging
 
 
 # ============================================================
@@ -134,5 +135,5 @@ volumes:
 # ============================================================
 networks:
   ledger-net-staging:
+    external: true
     name: ledger-net-staging
-    driver: bridge
