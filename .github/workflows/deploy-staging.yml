@@ -631,21 +631,29 @@ jobs:
         env:
           STAGING_DOMAIN: ${{ secrets.STAGING_DOMAIN }}
         run: |
-
           set -e
 
-          echo "Verifying STAGING HTTPS endpoint..."
+          echo "========================================"
+          echo "External STAGING HTTPS verification"
+          echo "========================================"
 
+          echo "Domain: ${STAGING_DOMAIN}"
+
+          echo "--- DNS ---"
+          getent hosts "${STAGING_DOMAIN}" || true
+
+          echo "--- HTTPS ---"
           curl \
+            --verbose \
             --fail \
-            --silent \
             --show-error \
             --insecure \
             --location \
+            --connect-timeout 10 \
             --max-time 30 \
-            "https://${STAGING_DOMAIN}/health" \
-            > /dev/null
+            "https://${STAGING_DOMAIN}/health"
 
+          echo
           echo "STAGING HTTPS endpoint is healthy."
 
 
