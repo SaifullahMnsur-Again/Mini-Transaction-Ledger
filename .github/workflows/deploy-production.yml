@@ -1,9 +1,5 @@
 name: Deploy to Production
 
-# ================================================================
-# ADAPTED FROM: Original deploy.yml
-# ================================================================
-
 on:
   push:
     branches:
@@ -21,12 +17,16 @@ env:
   IMAGE_NAME_BACKEND: saifullahmnsur-again/mini-transaction-ledger/backend
   IMAGE_NAME_FRONTEND: saifullahmnsur-again/mini-transaction-ledger/frontend
   COMPOSE_FILE: docker-compose.prod.yml
+  SHARED_COMPOSE_FILE: docker-compose.yml
   ENVIRONMENT: production
 
-# ---------------------------------------------------------
+
+# ================================================================
 # BUILD BACKEND
-# ---------------------------------------------------------
+# ================================================================
+
 jobs:
+
   build-backend:
     name: Build Backend Image
     runs-on: ubuntu-latest
@@ -36,6 +36,7 @@ jobs:
       packages: write
 
     steps:
+
       - name: Checkout devops-production
         uses: actions/checkout@v4
         with:
@@ -62,9 +63,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-# ---------------------------------------------------------
+
+# ================================================================
 # BUILD FRONTEND
-# ---------------------------------------------------------
+# ================================================================
+
   build-frontend:
     name: Build Frontend Image
     runs-on: ubuntu-latest
@@ -74,6 +77,7 @@ jobs:
       packages: write
 
     steps:
+
       - name: Checkout devops-production
         uses: actions/checkout@v4
         with:
@@ -100,9 +104,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-# ---------------------------------------------------------
+
+# ================================================================
 # SECURITY SCAN
-# ---------------------------------------------------------
+# ================================================================
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -117,6 +123,7 @@ jobs:
       packages: read
 
     steps:
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -158,12 +165,12 @@ jobs:
           category: frontend-ledger-ui-prod
 
 
-# ---------------------------------------------------------
-# DEPLOY TO PRODUCTION
-# ---------------------------------------------------------
+# ================================================================
+# DEPLOY PRODUCTION
+# ================================================================
+
   deploy:
     name: Deploy to Production
-
     runs-on: ubuntu-latest
 
     needs:
@@ -171,39 +178,62 @@ jobs:
       - build-frontend
       - security-scan
 
-    if: |
-      github.ref == 'refs/heads/devops-production'
+    if: github.ref == 'refs/heads/devops-production'
 
     permissions:
       contents: read
       packages: read
 
     environment:
-      name: production 
+      name: production
       url: https://${{ secrets.PRODUCTION_DOMAIN }}
 
     steps:
+
       - name: Checkout devops-production
         uses: actions/checkout@v4
         with:
           ref: devops-production
 
+
+      # ----------------------------------------------------------
+      # SSH
+      # ----------------------------------------------------------
+
       - name: Install SSH key
         env:
           AZURE_SSH_PRIVATE_KEY: ${{ secrets.AZURE_SSH_PRIVATE_KEY }}
         run: |
+
           set -e
+
           mkdir -p ~/.ssh
-          printf '%s\n' "$AZURE_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+
+          printf '%s\n' "$AZURE_SSH_PRIVATE_KEY" \
+            > ~/.ssh/deploy_key
+
           chmod 600 ~/.ssh/deploy_key
-          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null
+
+          ssh-keygen \
+            -y \
+            -f ~/.ssh/deploy_key \
+            > /dev/null
+
 
       - name: Add Azure VM to known_hosts
         env:
           VM_IP: ${{ secrets.AZURE_VM_IP }}
         run: |
+
           set -e
-          ssh-keyscan -H "$VM_IP" >> ~/.ssh/known_hosts
+
+          ssh-keyscan -H "$VM_IP" \
+            >> ~/.ssh/known_hosts
+
+
+      # ----------------------------------------------------------
+      # DATABASE BACKUP
+      # ----------------------------------------------------------
 
       - name: Backup Production Database
         env:
@@ -211,22 +241,30 @@ jobs:
           VM_USERNAME: ${{ secrets.AZURE_VM_USERNAME }}
           VM_IP: ${{ secrets.AZURE_VM_IP }}
         run: |
+
           set -e
 
-          echo "Creating backup of production database..."
+          echo "Creating production database backup..."
 
           ssh \
             -i ~/.ssh/deploy_key \
             "${VM_USERNAME}@${VM_IP}" \
-            "cd '${{ secrets.VM_APP_PATH }}' && bash deployment-scripts.sh backup" || true
+            "cd '${VM_APP_PATH}' && bash deployment-scripts.sh backup" \
+            || true
 
-          echo "Backup completed (or skipped if no database)."
+          echo "Backup completed or skipped."
+
+
+      # ----------------------------------------------------------
+      # DEPLOY
+      # ----------------------------------------------------------
 
       - name: Deploy to Production
         env:
           VM_APP_PATH: ${{ secrets.VM_APP_PATH }}
           VM_USERNAME: ${{ secrets.AZURE_VM_USERNAME }}
           VM_IP: ${{ secrets.AZURE_VM_IP }}
+
           PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
 
           GHCR_USERNAME: ${{ github.actor }}
@@ -238,6 +276,7 @@ jobs:
           IMAGE_TAG: prod-${{ github.sha }}
 
         run: |
+
           set -e
 
           ssh \
@@ -251,74 +290,148 @@ jobs:
              IMAGE_TAG='${IMAGE_TAG}' \
              PRODUCTION_DOMAIN='${PRODUCTION_DOMAIN}' \
              COMPOSE_FILE='${{ env.COMPOSE_FILE }}' \
+             SHARED_COMPOSE_FILE='${{ env.SHARED_COMPOSE_FILE }}' \
              bash -s" << 'DEPLOY_SCRIPT'
 
           set -e
 
           APP_PATH="${VM_APP_PATH}"
+
           BRANCH="devops-production"
+
           COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 
+          SHARED_COMPOSE_FILE="${SHARED_COMPOSE_FILE:-docker-compose.yml}"
+
+
           echo "========================================"
-          echo "Starting PRODUCTION deployment" 
+          echo "Starting PRODUCTION deployment"
           echo "========================================"
 
           echo "Application path: ${APP_PATH}"
           echo "Branch: ${BRANCH}"
           echo "Image tag: ${IMAGE_TAG}"
-          echo "Compose file: ${COMPOSE_FILE}"
+          echo "Application Compose: ${COMPOSE_FILE}"
+          echo "Shared Compose: ${SHARED_COMPOSE_FILE}"
+
 
           cd "$APP_PATH"
+
 
           if [ ! -d ".git" ]; then
             echo "ERROR: ${APP_PATH} is not a Git repository."
             exit 1
           fi
 
+
+          # ------------------------------------------------------
+          # SYNC REPOSITORY
+          # ------------------------------------------------------
+
           echo "Fetching ${BRANCH}..."
+
           git fetch origin "${BRANCH}"
 
-          echo "Resetting working tree to origin/${BRANCH}..."
           git reset --hard "origin/${BRANCH}"
 
+
           echo "Cleaning untracked deployment files..."
+
           git clean -fd \
             -e ssl/ \
             -e certbot-www/ \
             -e ssl-staging/ \
             -e certbot-www-staging/ \
+            -e ssl-prod/ \
+            -e certbot-www-prod/ \
             -e .env
+
+
+          # ------------------------------------------------------
+          # REQUIRED FILES
+          # ------------------------------------------------------
 
           if [ ! -f "$COMPOSE_FILE" ]; then
             echo "ERROR: ${COMPOSE_FILE} not found."
             exit 1
           fi
 
-          mkdir -p ssl certbot-www
+          if [ ! -f "$SHARED_COMPOSE_FILE" ]; then
+            echo "ERROR: ${SHARED_COMPOSE_FILE} not found."
+            exit 1
+          fi
 
-          echo "Current deployed commit:"
-          git rev-parse HEAD
+          if [ ! -f "nginx.conf" ]; then
+            echo "ERROR: nginx.conf not found."
+            exit 1
+          fi
 
-          echo "Docker image tag:"
-          echo "${IMAGE_TAG}"
+
+          mkdir -p \
+            ssl-staging \
+            certbot-www-staging \
+            ssl-prod \
+            certbot-www-prod
+
+
+          # ------------------------------------------------------
+          # DOCKER NETWORKS
+          # ------------------------------------------------------
+
+          echo "Ensuring Docker networks exist..."
+
+          docker network inspect ledger-net-staging \
+            >/dev/null 2>&1 || \
+            docker network create ledger-net-staging
+
+          docker network inspect ledger-net-prod \
+            >/dev/null 2>&1 || \
+            docker network create ledger-net-prod
+
+
+          # ------------------------------------------------------
+          # GHCR
+          # ------------------------------------------------------
 
           echo "Logging in to GHCR..."
-          echo "$GHCR_TOKEN" | docker login ghcr.io \
-            -u "$GHCR_USERNAME" \
-            --password-stdin
+
+          echo "$GHCR_TOKEN" |
+            docker login ghcr.io \
+              -u "$GHCR_USERNAME" \
+              --password-stdin
+
+
+          # ------------------------------------------------------
+          # PULL PRODUCTION IMAGES
+          # ------------------------------------------------------
 
           echo "Pulling backend image..."
-          docker pull "${BACKEND_IMAGE}:${IMAGE_TAG}"
+
+          docker pull \
+            "${BACKEND_IMAGE}:${IMAGE_TAG}"
+
 
           echo "Pulling frontend image..."
-          docker pull "${FRONTEND_IMAGE}:${IMAGE_TAG}"
 
-          docker image inspect "${BACKEND_IMAGE}:${IMAGE_TAG}" > /dev/null
-          docker image inspect "${FRONTEND_IMAGE}:${IMAGE_TAG}" > /dev/null
+          docker pull \
+            "${FRONTEND_IMAGE}:${IMAGE_TAG}"
 
-          echo "Docker images successfully pulled."
 
-          echo "Validating Docker Compose configuration..."
+          docker image inspect \
+            "${BACKEND_IMAGE}:${IMAGE_TAG}" \
+            > /dev/null
+
+          docker image inspect \
+            "${FRONTEND_IMAGE}:${IMAGE_TAG}" \
+            > /dev/null
+
+
+          # ------------------------------------------------------
+          # VALIDATE PRODUCTION COMPOSE
+          # ------------------------------------------------------
+
+          echo "Validating production Compose configuration..."
+
           BACKEND_IMAGE="$BACKEND_IMAGE" \
           FRONTEND_IMAGE="$FRONTEND_IMAGE" \
           IMAGE_TAG="$IMAGE_TAG" \
@@ -326,7 +439,9 @@ jobs:
             -f "$COMPOSE_FILE" \
             config -q
 
-          echo "Resolved Docker images:"
+
+          echo "Resolved production Docker images:"
+
           BACKEND_IMAGE="$BACKEND_IMAGE" \
           FRONTEND_IMAGE="$FRONTEND_IMAGE" \
           IMAGE_TAG="$IMAGE_TAG" \
@@ -334,7 +449,13 @@ jobs:
             -f "$COMPOSE_FILE" \
             config --images
 
-          echo "Deploying PRODUCTION containers..."
+
+          # ------------------------------------------------------
+          # DEPLOY PRODUCTION APPLICATION
+          # ------------------------------------------------------
+
+          echo "Deploying PRODUCTION application..."
+
           BACKEND_IMAGE="$BACKEND_IMAGE" \
           FRONTEND_IMAGE="$FRONTEND_IMAGE" \
           IMAGE_TAG="$IMAGE_TAG" \
@@ -344,38 +465,48 @@ jobs:
             --no-build \
             --remove-orphans
 
-          echo "Container status:"
-          docker compose \
-            -f "$COMPOSE_FILE" \
-            ps
 
-          echo "Waiting for services to become healthy..."
+          # ------------------------------------------------------
+          # APPLICATION HEALTH
+          # ------------------------------------------------------
+
+          echo "Waiting for production services..."
+
           sleep 10
 
           HEALTH_CHECK_PASSED=0
 
+
           for i in $(seq 1 30); do
+
             BACKEND_OK=0
             FRONTEND_OK=0
             DATABASE_OK=0
+
 
             if docker compose \
               -f "$COMPOSE_FILE" \
               exec -T backend-prod \
               curl -fsS \
-              http://localhost:8081/health \
+              http://localhost:8080/health \
               > /dev/null 2>&1; then
+
               BACKEND_OK=1
+
             fi
+
 
             if docker compose \
               -f "$COMPOSE_FILE" \
               exec -T frontend-prod \
               wget --spider -q \
-              http://localhost:3001 \
+              http://localhost:3000 \
               > /dev/null 2>&1; then
+
               FRONTEND_OK=1
+
             fi
+
 
             if docker compose \
               -f "$COMPOSE_FILE" \
@@ -383,81 +514,114 @@ jobs:
               pg_isready \
               -U postgres \
               > /dev/null 2>&1; then
+
               DATABASE_OK=1
+
             fi
+
 
             echo "Health check ${i}/30:"
-            echo "  Backend:   ${BACKEND_OK}"
-            echo "  Frontend:  ${FRONTEND_OK}"
-            echo "  PostgreSQL:${DATABASE_OK}"
+            echo "  Backend:    ${BACKEND_OK}"
+            echo "  Frontend:   ${FRONTEND_OK}"
+            echo "  PostgreSQL: ${DATABASE_OK}"
 
-            if [ "$BACKEND_OK" -eq 1 ] && \
-               [ "$FRONTEND_OK" -eq 1 ] && \
+
+            if [ "$BACKEND_OK" -eq 1 ] &&
+               [ "$FRONTEND_OK" -eq 1 ] &&
                [ "$DATABASE_OK" -eq 1 ]; then
 
-              echo "========================================"
-              echo "All PRODUCTION services are healthy."
-              echo "========================================"
-
               HEALTH_CHECK_PASSED=1
+
+              echo "All PRODUCTION services are healthy."
+
               break
+
             fi
 
+
             sleep 2
+
           done
 
-          if [ "$HEALTH_CHECK_PASSED" -ne 1 ]; then
-            echo "ERROR: PRODUCTION application health checks failed."
 
-            echo "Attempting rollback..."
-            bash deployment-scripts.sh rollback || true
+          if [ "$HEALTH_CHECK_PASSED" -ne 1 ]; then
+
+            echo "ERROR: PRODUCTION health checks failed."
 
             echo "Container status:"
+
             docker compose \
               -f "$COMPOSE_FILE" \
               ps
 
             echo "Container logs:"
+
             docker compose \
               -f "$COMPOSE_FILE" \
               logs \
               --tail=200
 
             exit 1
+
           fi
+
+
+          # ------------------------------------------------------
+          # SHARED NGINX
+          # ------------------------------------------------------
+
+          echo "Validating shared Nginx Compose..."
+
+          docker compose \
+            -f "$SHARED_COMPOSE_FILE" \
+            config -q
+
+
+          echo "Starting shared Nginx..."
+
+          docker compose \
+            -f "$SHARED_COMPOSE_FILE" \
+            up -d nginx
+
+
+          # ------------------------------------------------------
+          # NGINX VALIDATION
+          # ------------------------------------------------------
 
           echo "Validating Nginx configuration..."
 
-          if ! docker exec ledger-nginx nginx -t; then
-            echo "ERROR: Nginx configuration validation failed."
-            exit 1
-          fi
+          docker exec \
+            ledger-nginx \
+            nginx -t
 
-          echo "Nginx configuration is valid."
+
+          echo "Reloading Nginx..."
+
+          docker exec \
+            ledger-nginx \
+            nginx -s reload || true
+
+
+          # ------------------------------------------------------
+          # PRODUCTION HTTPS
+          # ------------------------------------------------------
 
           echo "Checking PRODUCTION HTTPS endpoint..."
 
-          if curl \
+          curl \
             --fail \
             --silent \
             --show-error \
             --max-time 15 \
             "https://${PRODUCTION_DOMAIN}/health" \
-            > /dev/null; then
+            > /dev/null
 
-            echo "PRODUCTION HTTPS health endpoint is responding."
 
-          else
-            echo "ERROR: PRODUCTION HTTPS health check failed."
+          echo "PRODUCTION HTTPS health endpoint is responding."
 
-            docker compose \
-              -f "$COMPOSE_FILE" \
-              ps
-
-            exit 1
-          fi
 
           docker logout ghcr.io || true
+
 
           echo "========================================"
           echo "PRODUCTION deployment completed successfully."
@@ -465,14 +629,19 @@ jobs:
 
           DEPLOY_SCRIPT
 
+
+      # ----------------------------------------------------------
+      # EXTERNAL HTTPS VERIFICATION
+      # ----------------------------------------------------------
+
       - name: Verify Production HTTPS
         env:
           PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
         run: |
+
           set -e
 
           echo "Verifying PRODUCTION HTTPS endpoint..."
-          echo "Checking: https://${PRODUCTION_DOMAIN}/health"
 
           curl \
             --fail \
@@ -484,21 +653,38 @@ jobs:
             "https://${PRODUCTION_DOMAIN}/health" \
             > /dev/null
 
-          echo "✓ PRODUCTION HTTPS endpoint is fully accessible and healthy!"
+          echo "PRODUCTION HTTPS endpoint is healthy."
+
+
+      # ----------------------------------------------------------
+      # SUMMARY
+      # ----------------------------------------------------------
 
       - name: Production deployment summary
         env:
           PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
         run: |
+
           echo "========================================"
           echo "PRODUCTION Deployment Summary"
           echo "========================================"
+
           echo "Branch:    devops-production"
           echo "Commit:    ${{ github.sha }}"
           echo "Domain:    https://${PRODUCTION_DOMAIN}"
-          echo "Backend:   ${REGISTRY}/${IMAGE_NAME_BACKEND}:prod-${{ github.sha }}"
-          echo "Frontend:  ${REGISTRY}/${IMAGE_NAME_FRONTEND}:prod-${{ github.sha }}"
+
+          echo "Backend:"
+          echo "${REGISTRY}/${IMAGE_NAME_BACKEND}:prod-${{ github.sha }}"
+
+          echo "Frontend:"
+          echo "${REGISTRY}/${IMAGE_NAME_FRONTEND}:prod-${{ github.sha }}"
+
           echo "========================================"
+
+
+      # ----------------------------------------------------------
+      # SSH CLEANUP
+      # ----------------------------------------------------------
 
       - name: Cleanup SSH key
         if: always()

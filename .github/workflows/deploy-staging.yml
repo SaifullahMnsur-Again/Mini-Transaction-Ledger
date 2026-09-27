@@ -1,13 +1,9 @@
 name: Deploy to Staging
 
-# ================================================================
-# ADAPTED FROM: Original deploy.yml
-# ================================================================
-
 on:
   push:
     branches:
-      - devops-develop 
+      - devops-develop
 
   workflow_dispatch:
     inputs:
@@ -21,12 +17,16 @@ env:
   IMAGE_NAME_BACKEND: saifullahmnsur-again/mini-transaction-ledger/backend
   IMAGE_NAME_FRONTEND: saifullahmnsur-again/mini-transaction-ledger/frontend
   COMPOSE_FILE: docker-compose.staging.yml
+  SHARED_COMPOSE_FILE: docker-compose.yml
   ENVIRONMENT: staging
 
-# ---------------------------------------------------------
+
+# ================================================================
 # BUILD BACKEND
-# ---------------------------------------------------------
+# ================================================================
+
 jobs:
+
   build-backend:
     name: Build Backend Image
     runs-on: ubuntu-latest
@@ -36,6 +36,7 @@ jobs:
       packages: write
 
     steps:
+
       - name: Checkout devops-develop
         uses: actions/checkout@v4
         with:
@@ -62,9 +63,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-# ---------------------------------------------------------
-# BUILD FRONTEND - SAME AS ORIGINAL
-# ---------------------------------------------------------
+
+# ================================================================
+# BUILD FRONTEND
+# ================================================================
+
   build-frontend:
     name: Build Frontend Image
     runs-on: ubuntu-latest
@@ -74,6 +77,7 @@ jobs:
       packages: write
 
     steps:
+
       - name: Checkout devops-develop
         uses: actions/checkout@v4
         with:
@@ -100,9 +104,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-# ---------------------------------------------------------
+
+# ================================================================
 # SECURITY SCAN
-# ---------------------------------------------------------
+# ================================================================
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -117,6 +123,7 @@ jobs:
       packages: read
 
     steps:
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -158,12 +165,12 @@ jobs:
           category: frontend-ledger-ui-staging
 
 
-# ---------------------------------------------------------
-# DEPLOY TO STAGING
-# ---------------------------------------------------------
+# ================================================================
+# DEPLOY STAGING
+# ================================================================
+
   deploy:
     name: Deploy to Staging
-
     runs-on: ubuntu-latest
 
     needs:
@@ -171,8 +178,7 @@ jobs:
       - build-frontend
       - security-scan
 
-    if: |
-      github.ref == 'refs/heads/devops-develop'
+    if: github.ref == 'refs/heads/devops-develop'
 
     permissions:
       contents: read
@@ -182,33 +188,56 @@ jobs:
       name: staging
 
     steps:
+
       - name: Checkout devops-develop
         uses: actions/checkout@v4
         with:
           ref: devops-develop
+
+
+      # ----------------------------------------------------------
+      # SSH
+      # ----------------------------------------------------------
 
       - name: Install SSH key
         env:
           AZURE_SSH_PRIVATE_KEY: ${{ secrets.AZURE_SSH_PRIVATE_KEY }}
         run: |
           set -e
+
           mkdir -p ~/.ssh
-          printf '%s\n' "$AZURE_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+
+          printf '%s\n' "$AZURE_SSH_PRIVATE_KEY" \
+            > ~/.ssh/deploy_key
+
           chmod 600 ~/.ssh/deploy_key
-          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null
+
+          ssh-keygen \
+            -y \
+            -f ~/.ssh/deploy_key \
+            > /dev/null
+
 
       - name: Add Azure VM to known_hosts
         env:
           VM_IP: ${{ secrets.AZURE_VM_IP }}
         run: |
           set -e
-          ssh-keyscan -H "$VM_IP" >> ~/.ssh/known_hosts
+
+          ssh-keyscan -H "$VM_IP" \
+            >> ~/.ssh/known_hosts
+
+
+      # ----------------------------------------------------------
+      # DEPLOY
+      # ----------------------------------------------------------
 
       - name: Deploy to Staging
         env:
           VM_APP_PATH: ${{ secrets.VM_APP_PATH }}
           VM_USERNAME: ${{ secrets.AZURE_VM_USERNAME }}
           VM_IP: ${{ secrets.AZURE_VM_IP }}
+
           STAGING_DOMAIN: ${{ secrets.STAGING_DOMAIN }}
 
           GHCR_USERNAME: ${{ github.actor }}
@@ -220,6 +249,7 @@ jobs:
           IMAGE_TAG: staging-${{ github.sha }}
 
         run: |
+
           set -e
 
           ssh \
@@ -233,13 +263,19 @@ jobs:
              IMAGE_TAG='${IMAGE_TAG}' \
              STAGING_DOMAIN='${STAGING_DOMAIN}' \
              COMPOSE_FILE='${{ env.COMPOSE_FILE }}' \
+             SHARED_COMPOSE_FILE='${{ env.SHARED_COMPOSE_FILE }}' \
              bash -s" << 'DEPLOY_SCRIPT'
 
           set -e
 
           APP_PATH="${VM_APP_PATH}"
+
           BRANCH="devops-develop"
+
           COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.staging.yml}"
+
+          SHARED_COMPOSE_FILE="${SHARED_COMPOSE_FILE:-docker-compose.yml}"
+
 
           echo "========================================"
           echo "Starting STAGING deployment"
@@ -248,59 +284,130 @@ jobs:
           echo "Application path: ${APP_PATH}"
           echo "Branch: ${BRANCH}"
           echo "Image tag: ${IMAGE_TAG}"
-          echo "Compose file: ${COMPOSE_FILE}"
+          echo "Application Compose: ${COMPOSE_FILE}"
+          echo "Shared Compose: ${SHARED_COMPOSE_FILE}"
+
 
           cd "$APP_PATH"
+
 
           if [ ! -d ".git" ]; then
             echo "ERROR: ${APP_PATH} is not a Git repository."
             exit 1
           fi
 
+
+          # ------------------------------------------------------
+          # SYNC REPOSITORY
+          # ------------------------------------------------------
+
           echo "Fetching ${BRANCH}..."
+
           git fetch origin "${BRANCH}"
 
-          echo "Resetting working tree to origin/${BRANCH}..."
           git reset --hard "origin/${BRANCH}"
 
+
           echo "Cleaning untracked deployment files..."
+
           git clean -fd \
             -e ssl/ \
             -e certbot-www/ \
             -e ssl-staging/ \
             -e certbot-www-staging/ \
+            -e ssl-prod/ \
+            -e certbot-www-prod/ \
             -e .env
+
+
+          # ------------------------------------------------------
+          # REQUIRED FILES
+          # ------------------------------------------------------
 
           if [ ! -f "$COMPOSE_FILE" ]; then
             echo "ERROR: ${COMPOSE_FILE} not found."
             exit 1
           fi
 
-          mkdir -p ssl-staging certbot-www-staging
+          if [ ! -f "$SHARED_COMPOSE_FILE" ]; then
+            echo "ERROR: ${SHARED_COMPOSE_FILE} not found."
+            exit 1
+          fi
 
-          echo "Current deployed commit:"
-          git rev-parse HEAD
+          if [ ! -f "nginx.conf" ]; then
+            echo "ERROR: nginx.conf not found."
+            exit 1
+          fi
 
-          echo "Docker image tag:"
-          echo "${IMAGE_TAG}"
+
+          # ------------------------------------------------------
+          # PRESERVE / CREATE DEPLOYMENT DIRECTORIES
+          # ------------------------------------------------------
+
+          mkdir -p \
+            ssl-staging \
+            certbot-www-staging \
+            ssl-prod \
+            certbot-www-prod
+
+
+          # ------------------------------------------------------
+          # DOCKER NETWORKS
+          # ------------------------------------------------------
+
+          echo "Ensuring Docker networks exist..."
+
+          docker network inspect ledger-net-staging \
+            >/dev/null 2>&1 || \
+            docker network create ledger-net-staging
+
+          docker network inspect ledger-net-prod \
+            >/dev/null 2>&1 || \
+            docker network create ledger-net-prod
+
+
+          # ------------------------------------------------------
+          # GHCR
+          # ------------------------------------------------------
 
           echo "Logging in to GHCR..."
-          echo "$GHCR_TOKEN" | docker login ghcr.io \
-            -u "$GHCR_USERNAME" \
-            --password-stdin
+
+          echo "$GHCR_TOKEN" |
+            docker login ghcr.io \
+              -u "$GHCR_USERNAME" \
+              --password-stdin
+
+
+          # ------------------------------------------------------
+          # PULL STAGING IMAGES
+          # ------------------------------------------------------
 
           echo "Pulling backend image..."
-          docker pull "${BACKEND_IMAGE}:${IMAGE_TAG}"
+
+          docker pull \
+            "${BACKEND_IMAGE}:${IMAGE_TAG}"
+
 
           echo "Pulling frontend image..."
-          docker pull "${FRONTEND_IMAGE}:${IMAGE_TAG}"
 
-          docker image inspect "${BACKEND_IMAGE}:${IMAGE_TAG}" > /dev/null
-          docker image inspect "${FRONTEND_IMAGE}:${IMAGE_TAG}" > /dev/null
+          docker pull \
+            "${FRONTEND_IMAGE}:${IMAGE_TAG}"
 
-          echo "Docker images successfully pulled."
 
-          echo "Validating Docker Compose configuration..."
+          docker image inspect \
+            "${BACKEND_IMAGE}:${IMAGE_TAG}" \
+            > /dev/null
+
+          docker image inspect \
+            "${FRONTEND_IMAGE}:${IMAGE_TAG}" \
+            > /dev/null
+
+
+          # ------------------------------------------------------
+          # VALIDATE STAGING COMPOSE
+          # ------------------------------------------------------
+
+          echo "Validating staging Compose configuration..."
 
           BACKEND_IMAGE="$BACKEND_IMAGE" \
           FRONTEND_IMAGE="$FRONTEND_IMAGE" \
@@ -309,7 +416,9 @@ jobs:
             -f "$COMPOSE_FILE" \
             config -q
 
-          echo "Resolved Docker images:"
+
+          echo "Resolved staging Docker images:"
+
           BACKEND_IMAGE="$BACKEND_IMAGE" \
           FRONTEND_IMAGE="$FRONTEND_IMAGE" \
           IMAGE_TAG="$IMAGE_TAG" \
@@ -317,7 +426,12 @@ jobs:
             -f "$COMPOSE_FILE" \
             config --images
 
-          echo "Deploying STAGING containers..."
+
+          # ------------------------------------------------------
+          # DEPLOY STAGING APPLICATION
+          # ------------------------------------------------------
+
+          echo "Deploying STAGING application..."
 
           BACKEND_IMAGE="$BACKEND_IMAGE" \
           FRONTEND_IMAGE="$FRONTEND_IMAGE" \
@@ -328,20 +442,24 @@ jobs:
             --no-build \
             --remove-orphans
 
-          echo "Container status:"
-          docker compose \
-            -f "$COMPOSE_FILE" \
-            ps
 
-          echo "Waiting for services to become healthy..."
+          # ------------------------------------------------------
+          # APPLICATION HEALTH
+          # ------------------------------------------------------
+
+          echo "Waiting for staging services..."
+
           sleep 10
 
           HEALTH_CHECK_PASSED=0
 
+
           for i in $(seq 1 30); do
+
             BACKEND_OK=0
             FRONTEND_OK=0
             DATABASE_OK=0
+
 
             if docker compose \
               -f "$COMPOSE_FILE" \
@@ -349,8 +467,11 @@ jobs:
               curl -fsS \
               http://localhost:8080/health \
               > /dev/null 2>&1; then
+
               BACKEND_OK=1
+
             fi
+
 
             if docker compose \
               -f "$COMPOSE_FILE" \
@@ -358,8 +479,11 @@ jobs:
               wget --spider -q \
               http://localhost:3000 \
               > /dev/null 2>&1; then
+
               FRONTEND_OK=1
+
             fi
+
 
             if docker compose \
               -f "$COMPOSE_FILE" \
@@ -367,78 +491,110 @@ jobs:
               pg_isready \
               -U postgres \
               > /dev/null 2>&1; then
+
               DATABASE_OK=1
+
             fi
+
 
             echo "Health check ${i}/30:"
-            echo "  Backend:   ${BACKEND_OK}"
-            echo "  Frontend:  ${FRONTEND_OK}"
-            echo "  PostgreSQL:${DATABASE_OK}"
+            echo "  Backend:    ${BACKEND_OK}"
+            echo "  Frontend:   ${FRONTEND_OK}"
+            echo "  PostgreSQL: ${DATABASE_OK}"
 
-            if [ "$BACKEND_OK" -eq 1 ] && \
-               [ "$FRONTEND_OK" -eq 1 ] && \
+
+            if [ "$BACKEND_OK" -eq 1 ] &&
+               [ "$FRONTEND_OK" -eq 1 ] &&
                [ "$DATABASE_OK" -eq 1 ]; then
 
-              echo "========================================"
-              echo "All STAGING services are healthy."
-              echo "========================================"
-
               HEALTH_CHECK_PASSED=1
+
+              echo "All STAGING services are healthy."
+
               break
+
             fi
 
+
             sleep 2
+
           done
 
-          if [ "$HEALTH_CHECK_PASSED" -ne 1 ]; then
-            echo "ERROR: STAGING application health checks failed."
 
-            echo "Container status:"
+          if [ "$HEALTH_CHECK_PASSED" -ne 1 ]; then
+
+            echo "ERROR: STAGING health checks failed."
+
             docker compose \
               -f "$COMPOSE_FILE" \
               ps
 
-            echo "Container logs:"
             docker compose \
               -f "$COMPOSE_FILE" \
               logs \
               --tail=200
 
             exit 1
+
           fi
+
+
+          # ------------------------------------------------------
+          # SHARED NGINX
+          # ------------------------------------------------------
+
+          echo "Validating shared Nginx Compose..."
+
+          docker compose \
+            -f "$SHARED_COMPOSE_FILE" \
+            config -q
+
+
+          echo "Starting shared Nginx..."
+
+          docker compose \
+            -f "$SHARED_COMPOSE_FILE" \
+            up -d nginx
+
+
+          # ------------------------------------------------------
+          # NGINX VALIDATION
+          # ------------------------------------------------------
 
           echo "Validating Nginx configuration..."
 
-          if ! docker exec ledger-nginx nginx -t; then
-            echo "ERROR: Nginx configuration validation failed."
-            exit 1
-          fi
+          docker exec \
+            ledger-nginx \
+            nginx -t
 
-          echo "Nginx configuration is valid."
+
+          echo "Reloading Nginx..."
+
+          docker exec \
+            ledger-nginx \
+            nginx -s reload || true
+
+
+          # ------------------------------------------------------
+          # STAGING HTTPS
+          # ------------------------------------------------------
 
           echo "Checking STAGING HTTPS endpoint..."
 
-          if curl \
+          curl \
             --fail \
             --silent \
             --show-error \
             --max-time 15 \
             "https://${STAGING_DOMAIN}/health" \
-            > /dev/null; then
+            > /dev/null
 
-            echo "STAGING HTTPS health endpoint is responding."
 
-          else
-            echo "ERROR: STAGING HTTPS health check failed."
+          echo "STAGING HTTPS health endpoint is responding."
 
-            docker compose \
-              -f "$COMPOSE_FILE" \
-              ps
-
-            exit 1
-          fi
 
           docker logout ghcr.io || true
+
 
           echo "========================================"
           echo "STAGING deployment completed successfully."
@@ -446,14 +602,19 @@ jobs:
 
           DEPLOY_SCRIPT
 
+
+      # ----------------------------------------------------------
+      # EXTERNAL HTTPS VERIFICATION
+      # ----------------------------------------------------------
+
       - name: Verify Staging HTTPS
         env:
           STAGING_DOMAIN: ${{ secrets.STAGING_DOMAIN }}
         run: |
+
           set -e
 
           echo "Verifying STAGING HTTPS endpoint..."
-          echo "Checking: https://${STAGING_DOMAIN}/health"
 
           curl \
             --fail \
@@ -465,21 +626,38 @@ jobs:
             "https://${STAGING_DOMAIN}/health" \
             > /dev/null
 
-          echo "✓ STAGING HTTPS endpoint is fully accessible and healthy!"
+          echo "STAGING HTTPS endpoint is healthy."
+
+
+      # ----------------------------------------------------------
+      # SUMMARY
+      # ----------------------------------------------------------
 
       - name: Staging deployment summary
         env:
           STAGING_DOMAIN: ${{ secrets.STAGING_DOMAIN }}
         run: |
+
           echo "========================================"
           echo "STAGING Deployment Summary"
           echo "========================================"
+
           echo "Branch:    devops-develop"
           echo "Commit:    ${{ github.sha }}"
           echo "Domain:    https://${STAGING_DOMAIN}"
-          echo "Backend:   ${REGISTRY}/${IMAGE_NAME_BACKEND}:staging-${{ github.sha }}"
-          echo "Frontend:  ${REGISTRY}/${IMAGE_NAME_FRONTEND}:staging-${{ github.sha }}"
+
+          echo "Backend:"
+          echo "${REGISTRY}/${IMAGE_NAME_BACKEND}:staging-${{ github.sha }}"
+
+          echo "Frontend:"
+          echo "${REGISTRY}/${IMAGE_NAME_FRONTEND}:staging-${{ github.sha }}"
+
           echo "========================================"
+
+
+      # ----------------------------------------------------------
+      # SSH CLEANUP
+      # ----------------------------------------------------------
 
       - name: Cleanup SSH key
         if: always()
