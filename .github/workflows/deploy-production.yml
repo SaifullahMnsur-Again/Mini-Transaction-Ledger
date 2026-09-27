@@ -299,7 +299,7 @@ jobs:
           echo "Current deployed commit:"
           git rev-parse HEAD
 
-          echo "Expected commit:"
+          echo "Docker image tag:"
           echo "${IMAGE_TAG}"
 
           echo "Logging in to GHCR..."
@@ -319,14 +319,26 @@ jobs:
           echo "Docker images successfully pulled."
 
           echo "Validating Docker Compose configuration..."
+          BACKEND_IMAGE="$BACKEND_IMAGE" \
+          FRONTEND_IMAGE="$FRONTEND_IMAGE" \
           IMAGE_TAG="$IMAGE_TAG" \
-            docker compose \
+          docker compose \
             -f "$COMPOSE_FILE" \
             config -q
 
-          echo "Deploying PRODUCTION containers..."
+          echo "Resolved Docker images:"
+          BACKEND_IMAGE="$BACKEND_IMAGE" \
+          FRONTEND_IMAGE="$FRONTEND_IMAGE" \
           IMAGE_TAG="$IMAGE_TAG" \
-            docker compose \
+          docker compose \
+            -f "$COMPOSE_FILE" \
+            config --images
+
+          echo "Deploying PRODUCTION containers..."
+          BACKEND_IMAGE="$BACKEND_IMAGE" \
+          FRONTEND_IMAGE="$FRONTEND_IMAGE" \
+          IMAGE_TAG="$IMAGE_TAG" \
+          docker compose \
             -f "$COMPOSE_FILE" \
             up -d \
             --no-build \
