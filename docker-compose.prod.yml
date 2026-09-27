@@ -1,3 +1,5 @@
+name: mini-transaction-ledger-production
+
 services:
 
   # ============================================================
@@ -124,7 +126,8 @@ services:
 # ============================================================
 volumes:
   postgres_data_prod:
-    driver: local
+    external: true
+    name: mini-transaction-ledger_postgres_data_prod
 
 
 # ============================================================
@@ -132,5 +135,5 @@ volumes:
 # ============================================================
 networks:
   ledger-net-prod:
+    external: true
     name: ledger-net-prod
-    driver: bridge

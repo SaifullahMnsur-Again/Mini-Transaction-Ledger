@@ -461,8 +461,8 @@ jobs:
           docker compose \
             -f "$COMPOSE_FILE" \
             up -d \
-            --no-build \
-            --remove-orphans
+            --no-build
+            
 
 
           # ------------------------------------------------------
@@ -635,24 +635,32 @@ jobs:
 
       - name: Verify Production HTTPS
         env:
-          PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
+            PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
         run: |
+            set -e
 
-          set -e
+            echo "========================================"
+            echo "External PRODUCTION HTTPS verification"
+            echo "========================================"
 
-          echo "Verifying PRODUCTION HTTPS endpoint..."
+            echo "Domain: ${PRODUCTION_DOMAIN}"
 
-          curl \
+            echo "--- DNS ---"
+            getent hosts "${PRODUCTION_DOMAIN}" || true
+
+            echo "--- HTTPS ---"
+            curl \
+            --verbose \
             --fail \
-            --silent \
             --show-error \
             --insecure \
             --location \
+            --connect-timeout 10 \
             --max-time 30 \
-            "https://${PRODUCTION_DOMAIN}/health" \
-            > /dev/null
+            "https://${PRODUCTION_DOMAIN}/health"
 
-          echo "PRODUCTION HTTPS endpoint is healthy."
+            echo
+            echo "PRODUCTION HTTPS endpoint is healthy."
 
 
       # ----------------------------------------------------------
