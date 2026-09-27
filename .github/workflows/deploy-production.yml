@@ -186,7 +186,6 @@ jobs:
 
     environment:
       name: production
-      url: https://${{ secrets.PRODUCTION_DOMAIN }}
 
     steps:
 
