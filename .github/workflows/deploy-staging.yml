@@ -439,8 +439,7 @@ jobs:
           docker compose \
             -f "$COMPOSE_FILE" \
             up -d \
-            --no-build \
-            --remove-orphans
+            --no-build 
 
 
           # ------------------------------------------------------
@@ -554,7 +553,19 @@ jobs:
 
           docker compose \
             -f "$SHARED_COMPOSE_FILE" \
-            up -d nginx
+            up -d \
+            --no-build \
+            nginx
+
+          echo "Checking Nginx container..."
+
+          docker ps \
+            --filter "name=ledger-nginx"
+
+          if ! docker inspect ledger-nginx >/dev/null 2>&1; then
+            echo "ERROR: ledger-nginx was not created."
+            exit 1
+          fi
 
 
           # ------------------------------------------------------
@@ -566,6 +577,15 @@ jobs:
           docker exec \
             ledger-nginx \
             nginx -t
+
+          echo "Checking host port 443..."
+
+          if ! sudo ss -lntp | grep -q ':443 '; then
+            echo "ERROR: Nothing is listening on port 443."
+            docker ps -a
+            docker logs ledger-nginx --tail=100 || true
+            exit 1
+          fi
 
 
           echo "Reloading Nginx..."

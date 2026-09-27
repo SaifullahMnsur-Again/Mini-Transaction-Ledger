@@ -1,3 +1,5 @@
+name: mini-transaction-ledger-production
+
 services:
 
   # ============================================================

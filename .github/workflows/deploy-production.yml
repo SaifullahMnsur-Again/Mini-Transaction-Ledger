@@ -461,8 +461,8 @@ jobs:
           docker compose \
             -f "$COMPOSE_FILE" \
             up -d \
-            --no-build \
-            --remove-orphans
+            --no-build
+            
 
 
           # ------------------------------------------------------
