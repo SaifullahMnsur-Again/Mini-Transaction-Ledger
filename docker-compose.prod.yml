@@ -1,0 +1,71 @@
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ledger-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl-prod:/etc/letsencrypt:ro
+      - ./certbot-www-prod:/var/www/certbot:ro
+    depends_on:
+      - backend-prod
+      - frontend-prod
+    networks:
+      - ledger-net-prod
+
+  postgres-db-prod:
+    image: postgres:16-alpine
+    container_name: ledger-db-prod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ledger_prod}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    networks:
+      - ledger-net-prod
+
+  backend-prod:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ledger-backend-prod
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=postgres-db-prod;Port=5433;Database=${POSTGRES_DB:-ledger_prod};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      - ASPNETCORE_URLS=http://+:8080
+    expose:
+      - "8080"
+    networks:
+      - ledger-net-prod
+    depends_on:
+      postgres-db-prod:
+        condition: service_healthy
+
+  frontend-prod:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ledger-frontend-prod
+    environment:
+      - NODE_ENV=prod
+      - REACT_APP_API_URL=https://ledger.saifullahmnsur.dev/api
+    expose:
+      - "3000"
+    networks:
+      - ledger-net-prod
+    depends_on:
+      backend-prod:
+        condition: service_healthy
+
+volumes:
+  postgres_data_prod:
+    driver: local
+
+networks:
+  ledger-net-prod:
+    driver: bridge
