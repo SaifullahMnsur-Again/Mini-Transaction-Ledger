@@ -1,65 +1,145 @@
 services:
-  postgres-db:
-    image: postgres:16-alpine
-    container_name: ledger-db
+
+  # ============================================================
+  # SHARED NGINX
+  # ============================================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ledger-nginx
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-ledger_db}
+
     ports:
-      - "5432:5432"
+      - "80:80"
+      - "443:443"
+
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+
+      # Staging certificates
+      - ./ssl-staging:/etc/letsencrypt/staging:ro
+
+      # Production certificates
+      - ./ssl-prod:/etc/letsencrypt/prod:ro
+
+      # Certbot challenge directories
+      - ./certbot-www-staging:/var/www/certbot/staging:ro
+      - ./certbot-www-prod:/var/www/certbot/prod:ro
+
+      - nginx_cache:/var/cache/nginx
+
+    networks:
+      - ledger-net-staging
+      - ledger-net-prod
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ledger_db}"]
-      interval: 3s
-      timeout: 3s
-      retries: 5
-    networks:
-      - ledger-net
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      network: host
-    container_name: ledger-backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+
+  # ============================================================
+  # SHARED CERTBOT
+  # ============================================================
+  certbot:
+    image: certbot/certbot:latest
+    container_name: ledger-certbot
     restart: unless-stopped
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Docker
-      - DOTNET_RUNNING_IN_CONTAINER=true
-      - ConnectionStrings__DefaultConnection=Host=postgres-db;Port=5432;Database=${POSTGRES_DB:-ledger_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
-    ports:
-      - "8000:8080"
-    depends_on:
-      postgres-db:
-        condition: service_healthy
-    networks:
-      - ledger-net
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      network: host
-    container_name: ledger-frontend
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_started
-    ports:
-      - "3000:3000"
-    networks:
-      - ledger-net
+    volumes:
+      # Staging Let's Encrypt data
+      - ./ssl-staging:/etc/letsencrypt/staging:rw
 
+      # Production Let's Encrypt data
+      - ./ssl-prod:/etc/letsencrypt/prod:rw
+
+      # ACME challenge directories
+      - ./certbot-www-staging:/var/www/certbot/staging:rw
+      - ./certbot-www-prod:/var/www/certbot/prod:rw
+
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        trap exit TERM
+
+        while :; do
+
+          echo "========================================"
+          echo "Checking STAGING certificates..."
+          echo "========================================"
+
+          certbot renew \
+            --config-dir /etc/letsencrypt/staging \
+            --work-dir /var/lib/letsencrypt/staging \
+            --logs-dir /var/log/letsencrypt/staging \
+            --webroot-path /var/www/certbot/staging \
+            --quiet || true
+
+
+          echo "========================================"
+          echo "Checking PRODUCTION certificates..."
+          echo "========================================"
+
+          certbot renew \
+            --config-dir /etc/letsencrypt/prod \
+            --work-dir /var/lib/letsencrypt/prod \
+            --logs-dir /var/log/letsencrypt/prod \
+            --webroot-path /var/www/certbot/prod \
+            --quiet || true
+
+
+          echo "Certificate renewal check completed."
+
+          sleep 12h &
+          wait $${!}
+
+        done
+
+    networks:
+      - ledger-net-staging
+      - ledger-net-prod
+
+    depends_on:
+      - nginx
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+        max-file: "1"
+
+
+# ============================================================
+# VOLUMES
+# ============================================================
 volumes:
-  postgres_data:
+  nginx_cache:
     driver: local
 
+
+# ============================================================
+# NETWORKS
+# ============================================================
 networks:
-  ledger-net:
-    driver: bridge
+
+  ledger-net-staging:
+    external: true
+
+  ledger-net-prod:
+    external: true

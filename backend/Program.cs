@@ -19,6 +19,8 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+builder.Services.AddHealthChecks();
+
 // 2. Database Connection
 var connectionString = builder.Configuration["ConnectionStrings:DefaultConnection"]
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' was not found.");
@@ -60,6 +62,8 @@ app.UseCors("AllowFrontend");
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHealthChecks("/health");
 
 // 6. Automatic Database Migration on Startup
 try
