@@ -1,63 +1,31 @@
 ﻿# ==========================================
-# OPTIMIZED .NET 10 BACKEND DOCKERFILE
-# For: 1GB RAM VM (Multi-stage, minimal)
+# STAGE 1: Build (SDK + Cache Mount)
 # ==========================================
-
-# Stage 1: Build
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS builder
-
 WORKDIR /src
 
-# Copy project files only
+# Copy project files first for layer caching
 COPY ["Backend.csproj", "./"]
 
-# Restore with cache mount (doesn't bloat image)
+# Cache mount: Persists NuGet packages across builds without writing to image layers
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
     dotnet restore "Backend.csproj"
 
-# Copy source code
 COPY . .
 
-# Build and publish (optimized for production)
+# Publish release binary to output directory
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages \
-    dotnet publish "Backend.csproj" \
-    -c Release \
-    -o /app/publish \
-    /p:UseAppHost=false \
-    /p:DebugType=none \
-    /p:DebugSymbols=false \
-    /p:PublishReadyToRun=true
+    dotnet publish "Backend.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # ==========================================
-# Stage 2: Runtime (minimal base image)
+# STAGE 2: Runtime (Ultra-minimal Alpine)
 # ==========================================
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine
-
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
 WORKDIR /app
-
-# Install curl for health checks
-RUN apk add --no-cache curl
-
-# Copy only compiled binaries
-COPY --from=builder /app/publish .
-
-# Non-root user
-RUN addgroup -g 1001 -S dotnet && \
-    adduser -S dotnet -u 1001 -G dotnet
-
-USER dotnet
-
-# Expose port
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+# Copy ONLY compiled binaries from Stage 1
+COPY --from=builder /app/publish .
 
-# Runtime optimization
-ENV DOTNET_TieredCompilation=1 \
-    DOTNET_TieredCompilationQuickJit=1 \
-    DOTNET_TieredCompilationQuickJitForLoops=1
-
-# Entry point
+USER $APP_UID
 ENTRYPOINT ["dotnet", "Backend.dll"]

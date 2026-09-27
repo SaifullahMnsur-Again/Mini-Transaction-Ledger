@@ -1,10 +1,7 @@
 ## --- Environment & Secrets ---
 .env
-*.env.*
 *.env.local
 *.env.*.local
-*.swp
-*.swo
 
 ## --- Database Storage ---
 pgdata/
@@ -35,6 +32,3 @@ crash.dmp
 **/node_modules/
 **/dist/
 **/build/
-
-bin/
-obj/
